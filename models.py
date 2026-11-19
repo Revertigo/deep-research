@@ -45,12 +45,8 @@ MODELS = [
      "blurb": "Full-size model. Deeper synthesis, longer reports."},
     {"id": "gpt-6.2-sol",  "label": "GPT-6.2 sol",   "tier": "strong",   "input": 2.00, "output": 10.00,
      "blurb": "Latest full-size flagship-class model."},
-    {"id": "gpt-5.6-sol",  "label": "GPT-5.6 sol",   "tier": "strong",   "input": 4.00, "output": 20.00,
-     "blurb": "GPT-5.6 flagship. Pricier than 6.2 sol for similar class."},
     {"id": "gpt-6.2-astra", "label": "GPT-6.2 astra", "tier": "premium",  "input": 8.00, "output": 40.00,
      "blurb": "Top tier. Use for research you really care about."},
-    {"id": "gpt-6-astra",  "label": "GPT-6 astra",   "tier": "premium",  "input": 10.00, "output": 50.00,
-     "blurb": "Previous astra. Most expensive option here."},
 ]
 
 
