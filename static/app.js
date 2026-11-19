@@ -219,7 +219,7 @@ function handleEvent(ev) {
       if (ev.stage === "deliver") {
         if (ev.status === "done") $("deliver-title").textContent = `Emailed to ${ev.to}`;
         if (ev.status === "failed") $("deliver-title").textContent = `Email failed: ${ev.error}`;
-        if (ev.status === "skipped") $("deliver-title").textContent = "Email off — shown on screen";
+        if (ev.status === "skipped") $("deliver-title").textContent = ev.reason ? `Email skipped (${ev.reason}) — shown on screen` : "Email off — shown on screen";
       }
       break;
     case "search_done":

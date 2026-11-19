@@ -65,15 +65,19 @@ async def research(req: ResearchRequest):
     if not is_allowed(req.model):
         raise HTTPException(400, f"Unknown model: {req.model}")
 
+    # Email is best-effort. The report is always streamed to the screen; if the
+    # server has no email config we skip delivery instead of rejecting the run.
     email_to: str | None = None
+    skip_reason: str | None = None
     if req.email_enabled:
         if not email_configured():
-            raise HTTPException(400, "Email is not configured on the server")
-        email_to = (req.email_to or "").strip() or DEFAULT_EMAIL_TO
-        if not EMAIL_RE.match(email_to):
-            raise HTTPException(400, f"Invalid email address: {email_to}")
+            skip_reason = "not configured on server"
+        else:
+            email_to = (req.email_to or "").strip() or DEFAULT_EMAIL_TO
+            if not EMAIL_RE.match(email_to):
+                raise HTTPException(400, f"Invalid email address: {email_to}")
 
-    manager = ResearchManager(model=req.model, email_to=email_to, num_searches=req.num_searches)
+    manager = ResearchManager(model=req.model, email_to=email_to, num_searches=req.num_searches, skip_reason=skip_reason)
 
     async def stream():
         try:

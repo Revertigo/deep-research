@@ -23,10 +23,11 @@ from research_agents import (
 
 
 class ResearchManager:
-    def __init__(self, model: str, email_to: str | None = None, num_searches: int = 5):
+    def __init__(self, model: str, email_to: str | None = None, num_searches: int = 5, skip_reason: str | None = None):
         self.model = model
         self.email_to = email_to  # None -> no email, report shown on screen only
         self.num_searches = num_searches
+        self.skip_reason = skip_reason
 
     async def run(self, query: str) -> AsyncIterator[dict]:
         trace_id = gen_trace_id()
@@ -53,16 +54,7 @@ class ResearchManager:
             report = await self.write_report(query, results)
             yield {"type": "stage", "stage": "write", "status": "done"}
 
-            if self.email_to:
-                yield {"type": "stage", "stage": "deliver", "status": "running", "to": self.email_to}
-                try:
-                    await self.send_email(report)
-                    yield {"type": "stage", "stage": "deliver", "status": "done", "to": self.email_to}
-                except Exception as exc:  # report still shown even if email fails
-                    yield {"type": "stage", "stage": "deliver", "status": "failed", "error": str(exc)[:300]}
-            else:
-                yield {"type": "stage", "stage": "deliver", "status": "skipped"}
-
+            # Screen first, always. Email afterwards, best-effort.
             yield {
                 "type": "report",
                 "summary": report.short_summary,
@@ -70,6 +62,16 @@ class ResearchManager:
                 "follow_ups": report.follow_up_questions,
                 "elapsed": round(time.monotonic() - started, 1),
             }
+
+            if self.email_to:
+                yield {"type": "stage", "stage": "deliver", "status": "running", "to": self.email_to}
+                try:
+                    await self.send_email(report)
+                    yield {"type": "stage", "stage": "deliver", "status": "done", "to": self.email_to}
+                except Exception as exc:  # report is already on screen
+                    yield {"type": "stage", "stage": "deliver", "status": "failed", "error": str(exc)[:300]}
+            else:
+                yield {"type": "stage", "stage": "deliver", "status": "skipped", "reason": self.skip_reason}
 
     async def plan_searches(self, query: str) -> WebSearchPlan:
         result = await Runner.run(make_planner(self.model, self.num_searches), f"Query: {query}")
