@@ -6,15 +6,7 @@ const EXAMPLES = [
   "State of PCIe 7.0 adoption in data centers",
 ];
 
-const FOOT_LINES = [
-  "Reads forty tabs so you don't have to.",
-  "Four agents walk into a search engine. Only the report comes out.",
-  "No PDFs were skimmed by humans in the making of this report.",
-  "The searching is parallel. The waiting, sadly, is not.",
-  "Our agents argue about sources so you don't have to.",
-  "May contain traces of the internet.",
-  "Trust, but verify. Then verify the verification.",
-];
+const FOOT_LINE = "The searching is parallel. The waiting, sadly, is not.";
 
 const state = {
   config: null,
@@ -32,7 +24,7 @@ async function boot() {
   const res = await fetch("/api/config");
   state.config = await res.json();
   $("pill-version").textContent = "v" + state.config.version;
-  $("foot-line").textContent = FOOT_LINES[Math.floor(Math.random() * FOOT_LINES.length)];
+  $("foot-line").textContent = FOOT_LINE;
 
   renderExamples();
   renderModels();
