@@ -76,6 +76,7 @@ button, input, textarea { font: inherit; color: inherit; }
   line-height: 1.05; letter-spacing: -.02em; margin: 40px 0 10px;
 }
 .sub { color: var(--text-2); margin: 0 0 28px; }
+@media (min-width: 761px) { .sub { white-space: nowrap; } }
 
 .query-box {
   display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: stretch;

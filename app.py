@@ -13,7 +13,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -41,7 +41,9 @@ class ResearchRequest(BaseModel):
 
 @app.get("/")
 async def index():
-    return FileResponse(STATIC / "index.html")
+    # Inject the version into asset URLs so browsers never serve stale CSS/JS.
+    html = (STATIC / "index.html").read_text(encoding="utf-8").replace("{{v}}", APP_VERSION)
+    return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/api/config")
