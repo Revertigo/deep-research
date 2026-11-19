@@ -3,7 +3,6 @@
 const $ = (id) => document.getElementById(id);
 const EXAMPLES = [
   "Most popular AI agent frameworks in 2026",
-  "Most commercially successful agentic AI implementations in 2026",
   "State of PCIe 7.0 adoption in data centers",
 ];
 
