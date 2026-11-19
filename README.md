@@ -1,31 +1,100 @@
 # Deep Research
 
-Multi-agent web research (OpenAI Agents SDK): plan searches, run them in
-parallel, write a report, optionally email it. FastAPI backend streams the
-pipeline as Server-Sent Events; the frontend is plain HTML/CSS/JS.
+A small multi-agent web research app built on the
+[OpenAI Agents SDK](https://openai.github.io/openai-agents-python/).
+Ask a question; four agents plan the searches, run them in parallel, write a
+long-form report, and optionally email it. You watch every step live.
+
+Grew out of the week-2 Deep Research lab from Ed Donner's
+[AI Agents course](https://github.com/ed-donner/agents), with the Gradio UI
+replaced by a FastAPI backend and a hand-built frontend.
+
+## Features
+
+- **Live timeline.** Plan → Search → Write → Deliver, streamed over
+  Server-Sent Events. Each planned search appears as a card with its reason,
+  spins while running, then expands to its summary.
+- **Model picker.** Ten OpenAI models grouped by cost tier (cheap → premium)
+  with list prices and a per-run cost estimate that updates as you change
+  settings. Default: `gpt-5.4-mini`.
+- **Configurable breadth.** 1–12 parallel web searches (default 5). The cap
+  is deliberate: searches from one plan grow redundant past ~8, while cost
+  grows linearly.
+- **Email delivery, best-effort.** On by default, recipient editable; the
+  report is always shown on screen first, so a failed or unconfigured mail
+  server never hides it.
+- **Report tools.** Pull-quote summary, rendered markdown, copy / download
+  as `.md`, link to the OpenAI trace, and follow-up questions you can
+  launch with one click.
+- **Mobile layout** and a version tag in the header so you always know
+  which build you're looking at.
+
+## How it works
+
+```
+query ──► Planner ──► N × Searcher (parallel, WebSearchTool) ──► Writer ──► Emailer (optional)
+            │                 │                                   │
+            └── SSE: stage ───┴── SSE: search_done ───────────────┴── SSE: report
+```
+
+| File | Role |
+| --- | --- |
+| `app.py` | FastAPI: `/` (UI), `/api/config`, `/api/research` (SSE stream) |
+| `research_manager.py` | Pipeline orchestration; yields structured events |
+| `research_agents.py` | Agent factories: planner, searcher, writer, emailer |
+| `models.py` | Model catalog, tiers, prices, cost-estimate coefficients |
+| `messenger.py` | SMTP email and Pushover |
+| `version.py` | `APP_VERSION`, shown in the UI and used to cache-bust assets |
+| `static/` | `index.html`, `styles.css`, `app.js` (no build step) |
+
+Agents are created per run, so the chosen model and search count apply to
+the whole pipeline. The email recipient is bound into the tool, never chosen
+by the model.
 
 ## Run locally
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # fill in OPENAI_API_KEY and the EMAIL_* values
-python app.py          # http://127.0.0.1:7860
+cp .env.example .env     # fill in the values below
+python app.py            # http://127.0.0.1:7860
 ```
 
-## Deploy (Render)
+### Environment variables
 
-Web service from this repo. Build: `pip install -r requirements.txt`.
-Start: `uvicorn app:app --host 0.0.0.0 --port $PORT`. Set the `.env` keys as
-environment variables. `render.yaml` carries the same settings.
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `OPENAI_API_KEY` | yes | Used by every agent and the web search tool |
+| `EMAIL_ADDRESS` | for email | Sender account (e.g. a Gmail address) |
+| `EMAIL_SMTP_SERVER` | for email | e.g. `smtp.gmail.com` (port 587, STARTTLS) |
+| `EMAIL_APP_PASSWORD` | for email | App password for the sender account |
+| `DEFAULT_EMAIL_TO` | no | Default recipient; falls back to `EMAIL_ADDRESS` |
+| `PUSHOVER_USER`, `PUSHOVER_TOKEN` | no | Push notifications |
+| `HOST`, `PORT` | no | Dev server bind (default `127.0.0.1:7860`) |
 
-## Layout
+Without the `EMAIL_*` values the app still works; the Deliver step shows
+"Email skipped (not configured on server)".
 
-| File | Role |
-| --- | --- |
-| `app.py` | FastAPI routes: `/`, `/api/config`, `/api/research` (SSE) |
-| `research_manager.py` | Pipeline: plan → search → write → deliver, yields events |
-| `research_agents.py` | Agent factories (planner, searcher, writer, emailer) |
-| `models.py` | Model catalog shown in the UI, with per-run cost estimates |
-| `messenger.py` | SMTP email + Pushover |
-| `static/` | UI |
+## Deploy
+
+`render.yaml` describes a free Render web service:
+build `pip install -r requirements.txt`, start
+`uvicorn app:app --host 0.0.0.0 --port $PORT`. Set the environment variables
+in the Render dashboard; none are committed.
+
+Note: anyone who can reach the deployed URL can spend your OpenAI credits
+and send email to any address. Put it behind a password or an allowlist
+before sharing the link.
+
+## Cost
+
+Estimate per research = fixed tokens (planner + writer + emailer) +
+per-search tokens, at the model's list price, plus the web search tool fee
+($10 per 1k calls). With `gpt-5.4-mini` and 5 searches that's about $0.10;
+with `gpt-6.2-astra` about $0.55. Coefficients live in `models.py`.
+
+## Versioning
+
+Semantic versions in `version.py`: minor bump for a feature, patch bump for a
+fix. The version is shown top-right and appended to asset URLs so browsers
+never serve stale CSS/JS.
