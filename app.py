@@ -1,19 +1,25 @@
 """FastAPI shell around the Deep Research agents.
 
 Routes:
+  GET  /healthz        liveness, no auth
   GET  /               static UI
   GET  /api/config     model catalog + email defaults
   POST /api/research   Server-Sent Events stream of pipeline events
+
+All routes except /healthz require HTTP Basic Auth (APP_USER / APP_PASSWORD).
 """
 
+import base64
+import binascii
 import json
 import os
 import re
+import secrets
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -29,6 +35,45 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 MAX_QUERY_CHARS = 500
 
 app = FastAPI(title="Deep Research", version=APP_VERSION)
+
+# --- Access gate: HTTP Basic Auth --------------------------------------------
+# Every request except /healthz needs the password from APP_PASSWORD. Each run
+# spends OpenAI credits and can email any address, so the app is private to
+# whoever holds the password. Fail-closed: with APP_PASSWORD unset, nothing is
+# served (503), so a misconfigured deploy can't become an open endpoint.
+APP_USER = os.getenv("APP_USER", "research")
+APP_PASSWORD = os.getenv("APP_PASSWORD", "")
+PUBLIC_PATHS = {"/healthz"}
+
+
+def _credentials_ok(header: str | None) -> bool:
+    if not header or not header.startswith("Basic "):
+        return False
+    try:
+        user, _, password = base64.b64decode(header[6:]).decode("utf-8").partition(":")
+    except (ValueError, UnicodeDecodeError, binascii.Error):
+        return False
+    return secrets.compare_digest(user, APP_USER) and secrets.compare_digest(password, APP_PASSWORD)
+
+
+@app.middleware("http")
+async def require_password(request: Request, call_next):
+    if request.url.path in PUBLIC_PATHS:
+        return await call_next(request)
+    if not APP_PASSWORD:
+        return JSONResponse({"detail": "APP_PASSWORD is not set on the server"}, status_code=503)
+    if not _credentials_ok(request.headers.get("authorization")):
+        return Response(
+            status_code=401,
+            headers={"WWW-Authenticate": 'Basic realm="Deep Research", charset="UTF-8"'},
+            content="Authentication required",
+        )
+    return await call_next(request)
+
+
+@app.get("/healthz")
+async def healthz():
+    return {"ok": True, "version": APP_VERSION}
 
 
 class ResearchRequest(BaseModel):
