@@ -5,3 +5,4 @@ openai-agents
 pydantic
 python-dotenv
 requests
+markdown==3.8

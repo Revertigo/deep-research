@@ -22,8 +22,11 @@ MIN_SEARCHES = 1
 MAX_CLARIFY_ROUNDS = 2
 MAX_QUESTIONS_PER_ROUND = 3
 
-# Rough token model per research: fixed part (planner + writer + emailer)
-# plus a per-search part (search agent in/out + its summary fed to the writer).
+# Rough token model per research: fixed part (planner + writer) plus a
+# per-search part (search agent in/out + its summary fed to the writer).
+# shortcut: the fixed coefficients were tuned when an emailer agent re-typed the
+# report (since v1.3.2 the email is built in code, zero tokens); re-tune from a
+# few traces when the estimate looks high.
 EST_FIXED_INPUT = 4_000
 EST_FIXED_OUTPUT = 6_500
 EST_PER_SEARCH_INPUT = 2_900

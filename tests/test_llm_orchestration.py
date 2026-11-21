@@ -60,13 +60,23 @@ def calls(monkeypatch):
             out = "summary"
         elif agent.name == "Writer Agent":
             out = REPORT
-        elif agent.name == "Email Agent":
-            out = "sent"
         else:
             raise AssertionError(f"unexpected agent {agent.name}")
         return SimpleNamespace(final_output=out)
 
     monkeypatch.setattr(research_manager.Runner, "run", fake_run)
+    return recorded
+
+
+@pytest.fixture
+def sent(monkeypatch):
+    """Fake messenger.send_email; records (subject, text_body, html_body, to). No SMTP."""
+    recorded: list[tuple[str, str, str, str | None]] = []
+
+    def fake_send_email(subject, text_body, html_body, to=None):
+        recorded.append((subject, text_body, html_body, to))
+
+    monkeypatch.setattr(research_manager.messenger, "send_email", fake_send_email)
     return recorded
 
 
@@ -161,7 +171,7 @@ def test_research_accepts_llm_and_streams_mapped_events(calls, client, monkeypat
 
 # --- (b) run_llm stream -> event mapping -------------------------------------
 
-def test_run_llm_maps_stream_to_event_sequence(calls, monkeypatch):
+def test_run_llm_maps_stream_to_event_sequence(calls, sent, monkeypatch):
     fake_streamed(monkeypatch, happy_script, REPORT.model_dump_json(), turns=3)
     rm = research_manager.ResearchManager(model="gpt-5.4-mini", num_searches=2, orchestration="llm",
                                           email_to="a@b.co", qa=[{"q": "Which region?", "a": "Europe"}])
@@ -191,8 +201,11 @@ def test_run_llm_maps_stream_to_event_sequence(calls, monkeypatch):
     report = events[9]
     assert report["summary"] == "s" and report["markdown"] == "# r" and report["follow_ups"] == ["f"]
     assert events[12]["text"] == "4 tool calls, 3 manager turns"
-    # Email is sent in code after the report event, with the writer's markdown.
-    assert calls == [("Email Agent", "# r")]
+    # Email is built in code after the report event: no model call, the writer's markdown goes out whole.
+    assert calls == []
+    assert len(sent) == 1
+    subject, text_body, html_body, to = sent[0]
+    assert to == "a@b.co" and subject == "Deep Research: r" and "# r" in text_body
 
 
 def test_run_llm_max_turns_yields_error_not_hang(calls, monkeypatch):
@@ -223,7 +236,7 @@ def test_run_llm_no_write_report_yields_readable_error(calls, monkeypatch):
     assert events[-1]["stage"] == "manager"
 
 
-def test_run_llm_exception_after_report_still_shows_report(calls, monkeypatch):
+def test_run_llm_exception_after_report_still_shows_report(calls, sent, monkeypatch):
     fake_streamed(monkeypatch, happy_script, None, turns=3, raise_at_end=RuntimeError("tool exploded"))
     rm = research_manager.ResearchManager(model="gpt-5.4-mini", num_searches=2, orchestration="llm", email_to="a@b.co")
     events = collect_sync(rm.run("EV adoption"))
@@ -233,7 +246,8 @@ def test_run_llm_exception_after_report_still_shows_report(calls, monkeypatch):
     deliver = [e for e in events if e.get("stage") == "deliver"]
     assert [d["status"] for d in deliver] == ["running", "done"]
     assert events[-1]["stage"] == "manager" and "after the report: The manager agent failed: tool exploded" in events[-1]["text"]
-    assert calls == [("Email Agent", "# r")]
+    assert calls == []
+    assert [s[3] for s in sent] == ["a@b.co"]
 
 
 def test_run_llm_exception_before_report_yields_error(calls, monkeypatch):

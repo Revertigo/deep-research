@@ -2,8 +2,9 @@
 
 A small multi-agent web research app built on the
 [OpenAI Agents SDK](https://openai.github.io/openai-agents-python/).
-Ask a question; four agents plan the searches, run them in parallel, write a
-long-form report, and optionally email it. You watch every step live.
+Ask a question; three agents plan the searches, run them in parallel and write
+a long-form report, which the app optionally emails you whole. You watch every
+step live.
 
 Grew out of the week-2 Deep Research lab from Ed Donner's
 [AI Agents course](https://github.com/ed-donner/agents), with the Gradio UI
@@ -28,7 +29,9 @@ replaced by a FastAPI backend and a hand-built frontend.
   grows linearly.
 - **Email delivery, best-effort.** On by default, recipient editable; the
   report is always shown on screen first, so a failed or unconfigured mail
-  server never hides it.
+  server never hides it. The mail is built in code from the same report the
+  page shows (summary, full markdown converted to HTML, follow-up
+  questions), so nothing is shortened or reworded by a model.
 - **Report tools.** Pull-quote summary, rendered markdown, copy / download
   as `.md`, link to the OpenAI trace, and follow-up questions you can
   launch with one click.
@@ -48,7 +51,7 @@ replaced by a FastAPI backend and a hand-built frontend.
 | Variance | deterministic flow | the manager may reorder or skip searches; the tools cap it at N searcher runs and one writer run |
 
 In both modes the questioner runs before the research (driven by the browser)
-and the emailer runs in code after the report is on screen. The manager's tool
+and the email is built and sent in code after the report is on screen. The manager's tool
 calls are mapped onto the same SSE events, so the timeline looks the same; an
 LLM run also shows a line like `4 tool calls, 3 manager turns` under the
 timeline and tags the report with "LLM-orchestrated". A manager that stops
@@ -61,7 +64,7 @@ traces (the Trace link on each report).
 ## How it works
 
 ```
-query ──► Questioner ⟲ (0–2 rounds, /api/clarify) ──► Planner ──► N × Searcher (parallel, WebSearchTool) ──► Writer ──► Emailer (optional)
+query ──► Questioner ⟲ (0–2 rounds, /api/clarify) ──► Planner ──► N × Searcher (parallel, WebSearchTool) ──► Writer ──► email built in code (optional)
                                                         │                 │                                   │
                                                         └── SSE: stage ───┴── SSE: search_done ───────────────┴── SSE: report
 ```
@@ -69,8 +72,8 @@ query ──► Questioner ⟲ (0–2 rounds, /api/clarify) ──► Planner �
 | File | Role |
 | --- | --- |
 | `app.py` | FastAPI: `/` (UI), `/api/config`, `/api/clarify` (one questioner round, JSON), `/api/research` (SSE stream) |
-| `research_manager.py` | Pipeline orchestration (`run_code`, `run_llm`); yields structured events |
-| `research_agents.py` | Agent factories: questioner, planner, searcher, writer, emailer, manager (+ its tools); `render_context` |
+| `research_manager.py` | Pipeline orchestration (`run_code`, `run_llm`); yields structured events; `build_email` (markdown → HTML, no model) |
+| `research_agents.py` | Agent factories: questioner, planner, searcher, writer, manager (+ its tools); `render_context` |
 | `models.py` | Model catalog, tiers, prices, cost-estimate coefficients, clarify caps |
 | `messenger.py` | SMTP email and Pushover |
 | `version.py` | `APP_VERSION`, shown in the UI and used to cache-bust assets |
@@ -78,8 +81,9 @@ query ──► Questioner ⟲ (0–2 rounds, /api/clarify) ──► Planner �
 | `tests/` | `pytest tests` — mocked agents, no OpenAI calls |
 
 Agents are created per run, so the chosen model and search count apply to
-the whole pipeline. The email recipient is bound into the tool, never chosen
-by the model.
+the whole pipeline. No agent touches the email: the recipient comes from the
+request and the body from the writer's report, converted with the `markdown`
+package (`fenced_code`, `tables`) and inline CSS so Gmail renders it.
 
 ## Run locally
 
@@ -118,7 +122,7 @@ before sharing the link.
 
 ## Cost
 
-Estimate per research = fixed tokens (planner + writer + emailer) +
+Estimate per research = fixed tokens (planner + writer; the email costs no tokens) +
 per-search tokens, at the model's list price, plus the web search tool fee
 ($10 per 1k calls). With `gpt-5.4-mini` and 5 searches that's about $0.10;
 with `gpt-6.2-astra` about $0.55. Coefficients live in `models.py`.

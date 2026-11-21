@@ -9,7 +9,7 @@ from agents import Agent, FunctionToolResult, ModelSettings, RunContextWrapper, 
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
-from messenger import push, send_email
+from messenger import push
 
 load_dotenv(override=True)
 
@@ -119,47 +119,15 @@ def make_writer(model: str) -> Agent:
     return Agent(name="Writer Agent", instructions=WRITER_INSTRUCTIONS, model=model, output_type=ReportData)
 
 
-# --- Email -------------------------------------------------------------------
-
-EMAIL_INSTRUCTIONS = """
-You are provided with a detailed report. Use your tool to send an email, converting the report into
-a clean, well presented HTML email with an appropriate subject line.
-"""
-
-
-def make_emailer(model: str, recipient: str) -> Agent:
-    """The recipient is bound into the tool so the LLM never chooses it."""
-
-    @function_tool
-    def send_email_tool(subject: str, text_body: str, html_body: str) -> str:
-        """
-        Send out an email with the given subject and body
-
-        Args:
-            subject: The subject of the email
-            text_body: The body of the email as plain text
-            html_body: The HTML body of the email
-        """
-        send_email(subject, text_body, html_body, to=recipient)
-        return "Email sent successfully"
-
-    return Agent(
-        name="Email Agent",
-        instructions=EMAIL_INSTRUCTIONS,
-        tools=[send_email_tool],
-        model=model,
-        model_settings=ModelSettings(tool_choice="required"),
-    )
-
-
 # --- Manager (LLM orchestration) ---------------------------------------------
 #
 # Second way to run the pipeline: instead of code calling planner -> searchers
 # -> writer in a fixed order, a manager agent decides the calls itself. The
 # three tools wrap the SAME agents with the SAME inputs the code path uses, so
 # a run in either mode is comparable. The questioner stays outside (the browser
-# drives the clarify loop before the run) and the emailer stays in code after
-# the manager returns, so the report is on screen before any email attempt.
+# drives the clarify loop before the run) and the email is built in code after
+# the manager returns (research_manager.build_email), so the report is on
+# screen before any email attempt and the manager has no email tool.
 
 MANAGER_INSTRUCTIONS = """
 You are a research manager. You run a deep research for the user's query and clarifications given as input.
@@ -283,6 +251,6 @@ def make_manager(model: str, num_searches: int, tools: list) -> Agent:
     )
 
 
-__all__ = ["make_questioner", "make_planner", "make_searcher", "make_writer", "make_emailer", "make_manager",
+__all__ = ["make_questioner", "make_planner", "make_searcher", "make_writer", "make_manager",
            "make_manager_tools", "stop_when_report_written", "push", "render_context", "ClarifyingTopic", "WebSearchItem", "WebSearchPlan",
            "ReportData", "MANAGER_INSTRUCTIONS", "SEARCH_FAILED_PREFIX", "WRITE_FAILED_PREFIX"]
