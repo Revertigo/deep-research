@@ -32,8 +32,30 @@ replaced by a FastAPI backend and a hand-built frontend.
 - **Report tools.** Pull-quote summary, rendered markdown, copy / download
   as `.md`, link to the OpenAI trace, and follow-up questions you can
   launch with one click.
+- **Two orchestration modes.** Code (default) or LLM, picked per run in the
+  Web searches card, so the same query can be run both ways and compared.
+  See below.
 - **Mobile layout** and a version tag in the header so you always know
   which build you're looking at.
+
+## Two orchestration modes
+
+| | Code (default) | LLM |
+| --- | --- | --- |
+| Who decides the calls | `research_manager.run_code`: planner → N searchers in parallel → writer, fixed | A manager agent (`make_manager`) with `plan_searches`, `search` and `write_report` as tools; it decides what to call and when |
+| Agents and inputs | planner, searcher, writer with `render_context` | the same agents with the same inputs, wrapped as `@function_tool` closures (`make_manager_tools`) |
+| Overhead | none | one manager turn per decision; `max_turns = searches + 6` |
+| Variance | deterministic flow | the manager may reorder, skip or add searches |
+
+In both modes the questioner runs before the research (driven by the browser)
+and the emailer runs in code after the report is on screen. The manager's tool
+calls are mapped onto the same SSE events, so the timeline looks the same; an
+LLM run also shows a line like `3 tool calls, 4 manager turns` under the
+timeline and tags the report with "LLM-orchestrated".
+
+To compare: run the same query with the same model and search count in each
+mode, then compare the report, the elapsed time, the manager line and the two
+traces (the Trace link on each report).
 
 ## How it works
 
@@ -46,8 +68,8 @@ query ──► Questioner ⟲ (0–2 rounds, /api/clarify) ──► Planner �
 | File | Role |
 | --- | --- |
 | `app.py` | FastAPI: `/` (UI), `/api/config`, `/api/clarify` (one questioner round, JSON), `/api/research` (SSE stream) |
-| `research_manager.py` | Pipeline orchestration; yields structured events |
-| `research_agents.py` | Agent factories: questioner, planner, searcher, writer, emailer; `render_context` |
+| `research_manager.py` | Pipeline orchestration (`run_code`, `run_llm`); yields structured events |
+| `research_agents.py` | Agent factories: questioner, planner, searcher, writer, emailer, manager (+ its tools); `render_context` |
 | `models.py` | Model catalog, tiers, prices, cost-estimate coefficients, clarify caps |
 | `messenger.py` | SMTP email and Pushover |
 | `version.py` | `APP_VERSION`, shown in the UI and used to cache-bust assets |

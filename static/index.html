@@ -57,6 +57,14 @@
               </div>
               <div class="scope-ticks" aria-hidden="true"><span>1</span><span>5</span><span>8</span><span>12</span></div>
               <p class="scope-note">More searches = broader coverage and a more accurate report. Gains flatten past ~8; cost and time grow with every search.</p>
+              <div class="orchestration">
+                <span class="orch-label">Orchestration</span>
+                <div class="segmented" id="orchestration" role="radiogroup" aria-label="Orchestration">
+                  <button type="button" class="seg" role="radio" data-value="code" aria-checked="true">Code</button>
+                  <button type="button" class="seg" role="radio" data-value="llm" aria-checked="false">LLM</button>
+                </div>
+              </div>
+              <p class="scope-note">Code: fixed plan→search→write pipeline. LLM: a manager agent decides the calls itself; costs more and may vary.</p>
             </div>
           </fieldset>
 
@@ -87,7 +95,7 @@
     <section class="run hidden" id="run">
       <div class="run-head">
         <div>
-          <span class="eyebrow">Researching</span>
+          <span class="eyebrow">Researching <span class="hint" id="run-mode"></span></span>
           <h2 class="run-query" id="run-query"></h2>
         </div>
         <button class="ghost" id="new-run" type="button">New research</button>
@@ -136,6 +144,7 @@
         </li>
       </ol>
 
+      <p class="manager-note hidden" id="manager-note"></p>
       <p class="error hidden" id="error"></p>
 
       <article class="report hidden" id="report">

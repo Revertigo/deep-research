@@ -3,7 +3,7 @@
 Routes:
   GET  /healthz        liveness, no auth
   GET  /               static UI
-  GET  /api/config     model catalog + email defaults
+  GET  /api/config     model catalog, email defaults, orchestration modes
   POST /api/clarify    one round of clarifying questions (JSON)
   POST /api/research   Server-Sent Events stream of pipeline events
 
@@ -17,6 +17,7 @@ import os
 import re
 import secrets
 from pathlib import Path
+from typing import Literal
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
@@ -109,6 +110,7 @@ class ResearchRequest(BaseModel):
     email_enabled: bool = True
     email_to: str | None = None
     qa: list[QAPair] = Field(default_factory=list, max_length=MAX_QA_PAIRS)
+    orchestration: Literal["code", "llm"] = "code"
 
 
 @app.get("/")
@@ -128,6 +130,7 @@ async def config():
         "cost_model": cost_model(),
         "email": {"configured": email_configured(), "default_to": DEFAULT_EMAIL_TO},
         "clarify": {"max_rounds": MAX_CLARIFY_ROUNDS, "max_questions": MAX_QUESTIONS_PER_ROUND},
+        "orchestration": {"default": "code", "options": ["code", "llm"]},
     }
 
 
@@ -171,7 +174,7 @@ async def research(req: ResearchRequest):
                 raise HTTPException(400, f"Invalid email address: {email_to}")
 
     manager = ResearchManager(model=req.model, email_to=email_to, num_searches=req.num_searches, skip_reason=skip_reason,
-                              qa=[p.model_dump() for p in req.qa])
+                              qa=[p.model_dump() for p in req.qa], orchestration=req.orchestration)
 
     async def stream():
         try:

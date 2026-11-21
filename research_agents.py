@@ -152,5 +152,103 @@ def make_emailer(model: str, recipient: str) -> Agent:
     )
 
 
-__all__ = ["make_questioner", "make_planner", "make_searcher", "make_writer", "make_emailer", "push",
-           "render_context", "ClarifyingTopic", "WebSearchItem", "WebSearchPlan", "ReportData"]
+# --- Manager (LLM orchestration) ---------------------------------------------
+#
+# Second way to run the pipeline: instead of code calling planner -> searchers
+# -> writer in a fixed order, a manager agent decides the calls itself. The
+# three tools wrap the SAME agents with the SAME inputs the code path uses, so
+# a run in either mode is comparable. The questioner stays outside (the browser
+# drives the clarify loop before the run) and the emailer stays in code after
+# the manager returns, so the report is on screen before any email attempt.
+
+MANAGER_INSTRUCTIONS = """
+You are a research manager. You run a deep research for the user's query and clarifications given as input.
+Work only through your tools, in this order:
+1. Call plan_searches exactly once to get a list of {n} web searches.
+2. Call search once for every planned search, passing its query and reason unchanged. You may issue
+   these calls in parallel. Aim for exactly {n} searches: do not add, drop or merge searches.
+3. Call write_report exactly once, passing every search summary. It already knows the query and clarifications.
+4. Return the report you received from write_report as your final output, unchanged.
+Do not search, plan or write anything yourself; the tools do the work.
+"""
+
+SEARCH_FAILED_PREFIX = "Search failed: "
+
+
+def make_manager_tools(model: str, context: str, num_searches: int, runner) -> list:
+    """The manager's tools, as closures over the planner, searcher and writer.
+
+    `runner` is the Runner class (passed in so tests can fake Runner.run the
+    same way they do for the code path). Each tool returns a string for the
+    model: JSON for the plan and the report, the summary text for a search.
+    """
+    planner = make_planner(model, num_searches)
+    searcher = make_searcher(model)
+    writer = make_writer(model)
+
+    @function_tool
+    async def plan_searches() -> str:
+        """
+        Plan the web searches for the research query and clarifications given to you.
+
+        Returns a JSON object {"searches": [{"query": str, "reason": str}, ...]} with the planned searches.
+        Call it once, before any search.
+        """
+        result = await runner.run(planner, context)
+        return result.final_output.model_dump_json()
+
+    @function_tool
+    async def search(query: str, reason: str) -> str:
+        """
+        Run one web search and summarize the results for this research.
+
+        Args:
+            query: The search term, exactly as planned by plan_searches.
+            reason: Why this search matters for the query, exactly as planned by plan_searches.
+
+        Returns the summary text (2-3 paragraphs), or a line starting with "Search failed:" on error.
+        """
+        item = WebSearchItem(query=query, reason=reason)
+        input_message = f"Research context:\n{context}\n\nSearch term: {item.query}\nReason for searching: {item.reason}"
+        try:
+            result = await runner.run(searcher, input_message)
+        except Exception as exc:
+            return f"{SEARCH_FAILED_PREFIX}{str(exc)[:300]}"
+        return result.final_output
+
+    @function_tool
+    async def write_report(search_summaries: list[str]) -> str:
+        """
+        Write the final research report from the search summaries.
+
+        Args:
+            search_summaries: Every summary returned by the search tool, in any order.
+
+        Returns a JSON object {"short_summary": str, "markdown_report": str, "follow_up_questions": [str, ...]}.
+        Call it once, after all searches are done.
+        """
+        input_message = f"Original query and clarifications:\n{context}\nSummarized search results: {search_summaries}"
+        result = await runner.run(writer, input_message)
+        return result.final_output.model_dump_json()
+
+    return [plan_searches, search, write_report]
+
+
+def make_manager(model: str, num_searches: int, tools: list) -> Agent:
+    """Manager agent: tools only, no handoffs; final output is a ReportData.
+
+    The query and clarifications are the run input (`render_context`), not part
+    of the instructions, so the manager sees them the way the planner does.
+    """
+    return Agent(
+        name="Manager Agent",
+        instructions=MANAGER_INSTRUCTIONS.format(n=num_searches),
+        tools=tools,
+        model=model,
+        output_type=ReportData,
+    )
+
+
+__all__ = ["make_questioner", "make_planner", "make_searcher", "make_writer", "make_emailer", "make_manager",
+           "make_manager_tools", "push", "render_context", "ClarifyingTopic", "WebSearchItem", "WebSearchPlan",
+           "ReportData", "MANAGER_INSTRUCTIONS", "SEARCH_FAILED_PREFIX"]
