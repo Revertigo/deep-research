@@ -14,8 +14,8 @@ replaced by a FastAPI backend and a hand-built frontend.
 - **Clarifying questions first (optional).** Before planning, a questioner
   agent may ask up to 3 short questions per round, for at most
   `MAX_CLARIFY_ROUNDS` rounds (2, in `models.py`). Answer, leave blank
-  ("no preference"), or skip. The Q&A pairs go verbatim to the planner and
-  the writer. The round cap is enforced by code, not by the model. Toggle in
+  ("no preference"), or skip. The Q&A pairs go verbatim to the planner,
+  every searcher and the writer. The round cap is enforced by code, not by the model. Toggle in
   Settings (on by default).
 - **Live timeline.** Clarify → Plan → Search → Write → Deliver, streamed over
   Server-Sent Events. Each planned search appears as a card with its reason,

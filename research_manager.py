@@ -6,7 +6,8 @@ timeline. The agents are still plain OpenAI Agents SDK agents.
 
 Clarifying questions happen before `run`: the UI calls /api/clarify for each
 round (one questioner call each) and passes the collected Q&A pairs in. The
-planner and writer both see the query plus those pairs via `render_context`.
+planner, every searcher and the writer see the query plus those pairs via
+`render_context`.
 """
 
 import asyncio
@@ -54,7 +55,7 @@ class ResearchManager:
 
             yield {"type": "stage", "stage": "search", "status": "running", "total": len(plan.searches)}
             results: list[str] = []
-            async for event in self.perform_searches(plan):
+            async for event in self.perform_searches(plan, context):
                 if event["type"] == "search_done":
                     results.append(event["summary"])
                 yield event
@@ -92,12 +93,12 @@ class ResearchManager:
         result = await Runner.run(make_planner(self.model, self.num_searches), context)
         return result.final_output
 
-    async def perform_searches(self, plan: WebSearchPlan) -> AsyncIterator[dict]:
+    async def perform_searches(self, plan: WebSearchPlan, context: str = "") -> AsyncIterator[dict]:
         searcher = make_searcher(self.model)
 
         async def one(index: int, item: WebSearchItem) -> dict:
             try:
-                summary = await self.search(searcher, item)
+                summary = await self.search(searcher, item, context)
                 return {"type": "search_done", "index": index, "query": item.query, "summary": summary}
             except Exception as exc:
                 return {"type": "search_failed", "index": index, "query": item.query, "error": str(exc)[:300]}
@@ -106,8 +107,10 @@ class ResearchManager:
         for finished in asyncio.as_completed(tasks):
             yield await finished
 
-    async def search(self, searcher, item: WebSearchItem) -> str:
+    async def search(self, searcher, item: WebSearchItem, context: str = "") -> str:
         input_message = f"Search term: {item.query}\nReason for searching: {item.reason}"
+        if context:
+            input_message = f"Research context:\n{context}\n\n{input_message}"
         result = await Runner.run(searcher, input_message)
         return result.final_output
 

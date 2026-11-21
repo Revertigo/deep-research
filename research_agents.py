@@ -41,7 +41,7 @@ def make_questioner(model: str) -> Agent:
 
 
 def render_context(query: str, qa: list[dict] | None = None) -> str:
-    """Query plus the user's answers, in one block shared by questioner, planner and writer."""
+    """Query plus the user's answers, in one block shared by questioner, planner, searcher and writer."""
     lines = [f"Query: {query}"]
     if qa:
         lines.append("Clarifications so far:")
@@ -83,6 +83,8 @@ SEARCH_INSTRUCTIONS = """
 You are a research assistant. Given a search term, you search the web for that term and
 produce a concise summary of the results. The summary must 2-3 paragraphs and less than 300 words.
 Capture the main points and be succinct. Reply only with the summary.
+The input may start with the user's research goal and their clarification answers.
+Focus the summary on what is relevant to them and skip unrelated angles the pages cover.
 """
 
 

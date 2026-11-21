@@ -147,3 +147,18 @@ def test_long_question_is_clipped_and_echo_accepted(calls, client, monkeypatch):
         json={"query": "Explain X", "model": "gpt-5.4-mini", "num_searches": 1, "email_enabled": False, "qa": qa},
     )
     assert r.status_code == 200
+
+
+def test_research_passes_context_to_searcher(calls, client):
+    qa = [{"q": "Which region?", "a": "Europe"}]
+    r = client.post(
+        "/api/research",
+        headers=auth_header(),
+        json={"query": "EV adoption", "model": "gpt-5.4-mini", "num_searches": 1, "email_enabled": False, "qa": qa},
+    )
+    assert r.status_code == 200
+    sent = dict(calls)["Search Agent"]
+    assert sent == (
+        "Research context:\nQuery: EV adoption\nClarifications so far:\nQ: Which region?\nA: Europe\n\n"
+        "Search term: q1\nReason for searching: r"
+    )
