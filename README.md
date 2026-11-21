@@ -44,14 +44,15 @@ replaced by a FastAPI backend and a hand-built frontend.
 | --- | --- | --- |
 | Who decides the calls | `research_manager.run_code`: planner → N searchers in parallel → writer, fixed | A manager agent (`make_manager`) with `plan_searches`, `search` and `write_report` as tools; it decides what to call and when |
 | Agents and inputs | planner, searcher, writer with `render_context` | the same agents with the same inputs, wrapped as `@function_tool` closures (`make_manager_tools`) |
-| Overhead | none | one manager turn per decision; `max_turns = searches + 6` |
-| Variance | deterministic flow | the manager may reorder, skip or add searches |
+| Overhead | none | one manager turn per decision; `max_turns = searches + 6`. The run ends when `write_report` returns, so the manager never retypes the report |
+| Variance | deterministic flow | the manager may reorder or skip searches; the tools cap it at N searcher runs and one writer run |
 
 In both modes the questioner runs before the research (driven by the browser)
 and the emailer runs in code after the report is on screen. The manager's tool
 calls are mapped onto the same SSE events, so the timeline looks the same; an
-LLM run also shows a line like `3 tool calls, 4 manager turns` under the
-timeline and tags the report with "LLM-orchestrated".
+LLM run also shows a line like `4 tool calls, 3 manager turns` under the
+timeline and tags the report with "LLM-orchestrated". A manager that stops
+without calling `write_report` is reported as an error, not as a report.
 
 To compare: run the same query with the same model and search count in each
 mode, then compare the report, the elapsed time, the manager line and the two

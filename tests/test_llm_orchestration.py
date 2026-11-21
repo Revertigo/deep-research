@@ -24,7 +24,14 @@ from openai.types.responses import ResponseFunctionToolCall  # noqa: E402
 
 import app as app_module  # noqa: E402
 import research_manager  # noqa: E402
-from research_agents import ReportData, WebSearchItem, WebSearchPlan, make_manager, make_manager_tools  # noqa: E402
+from research_agents import (  # noqa: E402
+    ReportData,
+    WebSearchItem,
+    WebSearchPlan,
+    make_manager,
+    make_manager_tools,
+    stop_when_report_written,
+)
 
 PASSWORD = "test-pass"
 CONTEXT = "Query: EV adoption\nClarifications so far:\nQ: Which region?\nA: Europe"
@@ -146,7 +153,8 @@ def test_research_accepts_llm_and_streams_mapped_events(calls, client, monkeypat
     assert captured["input"] == CONTEXT
     assert captured["max_turns"] == 2 + 6
     assert captured["agent"].name == "Manager Agent"
-    assert captured["agent"].output_type is ReportData
+    assert captured["agent"].output_type is None
+    assert captured["agent"].tool_use_behavior is stop_when_report_written
     assert not captured["agent"].handoffs
     assert sorted(t.name for t in captured["agent"].tools) == ["plan_searches", "search", "write_report"]
 
@@ -154,7 +162,7 @@ def test_research_accepts_llm_and_streams_mapped_events(calls, client, monkeypat
 # --- (b) run_llm stream -> event mapping -------------------------------------
 
 def test_run_llm_maps_stream_to_event_sequence(calls, monkeypatch):
-    fake_streamed(monkeypatch, happy_script, REPORT, turns=4)
+    fake_streamed(monkeypatch, happy_script, REPORT.model_dump_json(), turns=3)
     rm = research_manager.ResearchManager(model="gpt-5.4-mini", num_searches=2, orchestration="llm",
                                           email_to="a@b.co", qa=[{"q": "Which region?", "a": "Europe"}])
     events = collect_sync(rm.run("EV adoption"))
@@ -182,7 +190,7 @@ def test_run_llm_maps_stream_to_event_sequence(calls, monkeypatch):
     assert events[5] == {"type": "search_done", "index": 1, "query": "q2", "summary": "summary two"}
     report = events[9]
     assert report["summary"] == "s" and report["markdown"] == "# r" and report["follow_ups"] == ["f"]
-    assert events[12]["text"] == "4 tool calls, 4 manager turns"
+    assert events[12]["text"] == "4 tool calls, 3 manager turns"
     # Email is sent in code after the report event, with the writer's markdown.
     assert calls == [("Email Agent", "# r")]
 
@@ -202,7 +210,7 @@ def test_run_llm_max_turns_yields_error_not_hang(calls, monkeypatch):
     assert calls == []
 
 
-def test_run_llm_wrong_final_output_yields_error(calls, monkeypatch):
+def test_run_llm_no_write_report_yields_readable_error(calls, monkeypatch):
     def no_write(agent):
         return happy_script(agent)[:6]  # plan + searches, manager answers in prose instead of write_report
 
@@ -210,7 +218,33 @@ def test_run_llm_wrong_final_output_yields_error(calls, monkeypatch):
     rm = research_manager.ResearchManager(model="gpt-5.4-mini", num_searches=2, orchestration="llm")
     events = collect_sync(rm.run("EV adoption"))
     error = next(e for e in events if e["type"] == "error")
-    assert "str instead of a report" in error["message"]
+    assert error["message"] == "Manager finished without writing a report."
+    assert "report" not in [e["type"] for e in events]
+    assert events[-1]["stage"] == "manager"
+
+
+def test_run_llm_exception_after_report_still_shows_report(calls, monkeypatch):
+    fake_streamed(monkeypatch, happy_script, None, turns=3, raise_at_end=RuntimeError("tool exploded"))
+    rm = research_manager.ResearchManager(model="gpt-5.4-mini", num_searches=2, orchestration="llm", email_to="a@b.co")
+    events = collect_sync(rm.run("EV adoption"))
+    types = [e["type"] for e in events]
+    assert "error" not in types
+    assert types.index("report") < types.index("stage", types.index("report"))  # deliver comes after report
+    deliver = [e for e in events if e.get("stage") == "deliver"]
+    assert [d["status"] for d in deliver] == ["running", "done"]
+    assert events[-1]["stage"] == "manager" and "after the report: The manager agent failed: tool exploded" in events[-1]["text"]
+    assert calls == [("Email Agent", "# r")]
+
+
+def test_run_llm_exception_before_report_yields_error(calls, monkeypatch):
+    def partial(agent):
+        return happy_script(agent)[:4]
+
+    fake_streamed(monkeypatch, partial, None, turns=2, raise_at_end=RuntimeError("model down"))
+    rm = research_manager.ResearchManager(model="gpt-5.4-mini", num_searches=2, orchestration="llm")
+    events = collect_sync(rm.run("EV adoption"))
+    error = next(e for e in events if e["type"] == "error")
+    assert error["message"] == "The manager agent failed: model down"
     assert "report" not in [e["type"] for e in events]
 
 
@@ -248,12 +282,54 @@ def test_manager_tools_wrap_agents_with_code_path_inputs(calls):
     assert inputs["Writer Agent"] == f"Original query and clarifications:\n{CONTEXT}\nSummarized search results: ['summary']"
 
 
-def test_make_manager_has_no_handoffs_and_structured_output(calls):
+def test_make_manager_stops_on_write_report(calls):
     tools = make_manager_tools("gpt-5.4-mini", CONTEXT, 3, research_manager.Runner)
     manager = make_manager("gpt-5.4-mini", 3, tools)
-    assert manager.output_type is ReportData
+    assert manager.output_type is None
+    assert manager.tool_use_behavior is stop_when_report_written
     assert manager.handoffs == []
     assert "exactly once" in manager.instructions and "3 web searches" in manager.instructions
+
+    write = next(t for t in tools if t.name == "write_report")
+    search = next(t for t in tools if t.name == "search")
+    ok = SimpleNamespace(tool=write, output=REPORT.model_dump_json())
+    bad = SimpleNamespace(tool=write, output="Report not written: no search summaries were given")
+    other = SimpleNamespace(tool=search, output="summary")
+    assert stop_when_report_written(None, [other, ok]).is_final_output is True
+    assert stop_when_report_written(None, [other, ok]).final_output == REPORT.model_dump_json()
+    assert stop_when_report_written(None, [bad]).is_final_output is False
+    assert stop_when_report_written(None, [other]).is_final_output is False
+
+
+def test_search_budget_enforced_in_tool(calls):
+    tools = {t.name: t for t in make_manager_tools("gpt-5.4-mini", CONTEXT, 2, research_manager.Runner)}
+
+    def search(i):
+        args = json.dumps({"query": f"q{i}", "reason": "r"})
+        ctx = ToolContext(context=None, tool_name="search", tool_call_id=f"c{i}", tool_arguments=args)
+        return run_sync(tools["search"].on_invoke_tool(ctx, args))
+
+    assert search(1) == "summary"
+    assert search(2) == "summary"
+    assert search(3) == "Search failed: search budget of 2 reached"
+    assert search(4) == "Search failed: search budget of 2 reached"
+    assert [n for n, _ in calls] == ["Search Agent", "Search Agent"]  # no model call past the budget
+
+
+def test_write_report_once_guard_and_empty_summaries(calls):
+    tools = {t.name: t for t in make_manager_tools("gpt-5.4-mini", CONTEXT, 2, research_manager.Runner)}
+
+    def write(summaries):
+        args = json.dumps({"search_summaries": summaries})
+        ctx = ToolContext(context=None, tool_name="write_report", tool_call_id="w", tool_arguments=args)
+        return run_sync(tools["write_report"].on_invoke_tool(ctx, args))
+
+    assert write([]) == "Report not written: no search summaries were given"
+    assert calls == []
+    first = write(["a"])
+    assert json.loads(first) == REPORT.model_dump()
+    assert write(["b"]) == first
+    assert [n for n, _ in calls] == ["Writer Agent"]  # second call did not run the writer
 
 
 # --- (c) code mode unchanged --------------------------------------------------

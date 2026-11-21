@@ -136,8 +136,12 @@ class ResearchManager:
           tool_output  plan_searches            -> stage plan done, stage search running
           tool_output  search                   -> search_done / search_failed
           tool_called  write_report             -> stage search done, stage write running
-          tool_output  write_report             -> stage write done
+          tool_output  write_report             -> stage write done; the run ends here
+                                                   (stop_when_report_written)
         Then: report event, deliver block, manager note with call/turn counts.
+        A manager that finishes without a successful write_report is an error.
+        If the stream breaks after write_report produced a report, the report
+        is still shown and delivered; the note carries the error.
         """
         trace_id = gen_trace_id()
         started = time.monotonic()
@@ -157,7 +161,7 @@ class ResearchManager:
             write_started = False
             error: str | None = None
 
-            result = Runner.run_streamed(manager, context, max_turns=self.num_searches + 6)
+            result = Runner.run_streamed(manager, context, max_turns=self.num_turns_cap())
             try:
                 async for ev in result.stream_events():
                     if getattr(ev, "type", None) != "run_item_stream_event":
@@ -204,32 +208,33 @@ class ResearchManager:
                             tool_report = _parse_model(ReportData, output)
                             if tool_report is not None:
                                 yield {"type": "stage", "stage": "write", "status": "done"}
-            except MaxTurnsExceeded as exc:
-                error = f"The manager agent did not finish within {self.num_searches + 6} turns ({exc})."
+            except MaxTurnsExceeded:
+                error = f"The manager agent did not finish within {self.num_turns_cap()} turns."
+            except Exception as exc:  # a tool or the model failed mid-run; never leave the UI hanging
+                error = f"The manager agent failed: {str(exc)[:300]}"
 
-            turns = len(result.raw_responses)
-            note = {"type": "stage", "stage": "manager", "status": "note",
-                    "text": f"{tool_calls} tool call{'s' if tool_calls != 1 else ''}, {turns} manager turn{'s' if turns != 1 else ''}"}
+            if tool_report is None and error is None:
+                error = "Manager finished without writing a report."
 
-            # The writer's own output is the report shown, as in code mode. The manager's
-            # structured final output is the fallback when the write_report output was lost.
-            report = tool_report
-            if report is None and error is None:
-                final = result.final_output
-                if isinstance(final, ReportData):
-                    report = final
-                else:
-                    error = f"The manager agent returned {type(final).__name__} instead of a report."
-            if report is None:
-                yield {"type": "error", "message": error or "The manager agent produced no report."}
+            turns = len(getattr(result, "raw_responses", []) or [])
+            text = f"{tool_calls} tool call{'s' if tool_calls != 1 else ''}, {turns} manager turn{'s' if turns != 1 else ''}"
+            if error and tool_report is not None:
+                text += f"; after the report: {error}"
+            note = {"type": "stage", "stage": "manager", "status": "note", "text": text}
+
+            if tool_report is None:
+                yield {"type": "error", "message": error}
                 yield note
                 return
 
             # Screen first, always. Email afterwards, best-effort.
-            yield self._report_event(report, started)
-            async for event in self.deliver(report):
+            yield self._report_event(tool_report, started)
+            async for event in self.deliver(tool_report):
                 yield event
             yield note
+
+    def num_turns_cap(self) -> int:
+        return self.num_searches + 6
 
     # --- Agents --------------------------------------------------------------
 

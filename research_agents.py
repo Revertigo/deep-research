@@ -5,7 +5,7 @@ use a cheap or an expensive model end to end. The instructions and output
 schemas are the ones from the course lab, unchanged.
 """
 
-from agents import Agent, ModelSettings, WebSearchTool, function_tool
+from agents import Agent, FunctionToolResult, ModelSettings, RunContextWrapper, ToolsToFinalOutputResult, WebSearchTool, function_tool
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
@@ -168,11 +168,12 @@ Work only through your tools, in this order:
 2. Call search once for every planned search, passing its query and reason unchanged. You may issue
    these calls in parallel. Aim for exactly {n} searches: do not add, drop or merge searches.
 3. Call write_report exactly once, passing every search summary. It already knows the query and clarifications.
-4. Return the report you received from write_report as your final output, unchanged.
+   The research is complete when write_report returns; you do not need to repeat the report.
 Do not search, plan or write anything yourself; the tools do the work.
 """
 
 SEARCH_FAILED_PREFIX = "Search failed: "
+WRITE_FAILED_PREFIX = "Report not written: "
 
 
 def make_manager_tools(model: str, context: str, num_searches: int, runner) -> list:
@@ -181,10 +182,16 @@ def make_manager_tools(model: str, context: str, num_searches: int, runner) -> l
     `runner` is the Runner class (passed in so tests can fake Runner.run the
     same way they do for the code path). Each tool returns a string for the
     model: JSON for the plan and the report, the summary text for a search.
+
+    Budgets are enforced here, not only in the prompt: at most `num_searches`
+    searcher runs, and one writer run (a second write_report call returns the
+    first report without another model call).
     """
     planner = make_planner(model, num_searches)
     searcher = make_searcher(model)
     writer = make_writer(model)
+    searches_started = 0
+    written: list[str] = []  # the first write_report result, once there is one
 
     @function_tool
     async def plan_searches() -> str:
@@ -206,8 +213,13 @@ def make_manager_tools(model: str, context: str, num_searches: int, runner) -> l
             query: The search term, exactly as planned by plan_searches.
             reason: Why this search matters for the query, exactly as planned by plan_searches.
 
-        Returns the summary text (2-3 paragraphs), or a line starting with "Search failed:" on error.
+        Returns the summary text (2-3 paragraphs), or a line starting with "Search failed:" on error
+        or once the search budget is used up.
         """
+        nonlocal searches_started
+        if searches_started >= num_searches:
+            return f"{SEARCH_FAILED_PREFIX}search budget of {num_searches} reached"
+        searches_started += 1
         item = WebSearchItem(query=query, reason=reason)
         input_message = f"Research context:\n{context}\n\nSearch term: {item.query}\nReason for searching: {item.reason}"
         try:
@@ -224,19 +236,41 @@ def make_manager_tools(model: str, context: str, num_searches: int, runner) -> l
         Args:
             search_summaries: Every summary returned by the search tool, in any order.
 
-        Returns a JSON object {"short_summary": str, "markdown_report": str, "follow_up_questions": [str, ...]}.
-        Call it once, after all searches are done.
+        Returns a JSON object {"short_summary": str, "markdown_report": str, "follow_up_questions": [str, ...]},
+        or a line starting with "Report not written:" when no summaries were given.
+        Call it once, after all searches are done. The research ends when it returns.
         """
+        if written:
+            return written[0]
+        if not search_summaries:
+            return f"{WRITE_FAILED_PREFIX}no search summaries were given"
         input_message = f"Original query and clarifications:\n{context}\nSummarized search results: {search_summaries}"
         result = await runner.run(writer, input_message)
-        return result.final_output.model_dump_json()
+        written.append(result.final_output.model_dump_json())
+        return written[0]
 
     return [plan_searches, search, write_report]
 
 
-def make_manager(model: str, num_searches: int, tools: list) -> Agent:
-    """Manager agent: tools only, no handoffs; final output is a ReportData.
+def stop_when_report_written(_ctx: RunContextWrapper, results: list[FunctionToolResult]) -> ToolsToFinalOutputResult:
+    """tool_use_behavior: end the run on a successful write_report, with its JSON as final_output.
 
+    Same as StopAtTools(["write_report"]) except that a "Report not written:" answer
+    (empty summaries) goes back to the manager so it can fix the call instead of
+    ending the run without a report.
+    """
+    for r in results:
+        if r.tool.name == "write_report" and not str(r.output).startswith(WRITE_FAILED_PREFIX):
+            return ToolsToFinalOutputResult(is_final_output=True, final_output=r.output)
+    return ToolsToFinalOutputResult(is_final_output=False, final_output=None)
+
+
+def make_manager(model: str, num_searches: int, tools: list) -> Agent:
+    """Manager agent: tools only, no handoffs.
+
+    The run stops when write_report returns a report (`stop_when_report_written`):
+    its JSON output is the run's final_output, so the manager never retypes the
+    report as a structured answer (one turn and the report's output tokens saved).
     The query and clarifications are the run input (`render_context`), not part
     of the instructions, so the manager sees them the way the planner does.
     """
@@ -245,10 +279,10 @@ def make_manager(model: str, num_searches: int, tools: list) -> Agent:
         instructions=MANAGER_INSTRUCTIONS.format(n=num_searches),
         tools=tools,
         model=model,
-        output_type=ReportData,
+        tool_use_behavior=stop_when_report_written,
     )
 
 
 __all__ = ["make_questioner", "make_planner", "make_searcher", "make_writer", "make_emailer", "make_manager",
-           "make_manager_tools", "push", "render_context", "ClarifyingTopic", "WebSearchItem", "WebSearchPlan",
-           "ReportData", "MANAGER_INSTRUCTIONS", "SEARCH_FAILED_PREFIX"]
+           "make_manager_tools", "stop_when_report_written", "push", "render_context", "ClarifyingTopic", "WebSearchItem", "WebSearchPlan",
+           "ReportData", "MANAGER_INSTRUCTIONS", "SEARCH_FAILED_PREFIX", "WRITE_FAILED_PREFIX"]

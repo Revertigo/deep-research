@@ -285,7 +285,7 @@ input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-of
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
 .error { color: var(--rose); border: 1px solid rgba(255,122,144,.35); background: rgba(255,122,144,.07); padding: 12px 14px; border-radius: var(--radius-sm); }
-.manager-note { margin: 4px 0 0; font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+.manager-note { margin: 4px 0 0; font-family: var(--mono); font-size: 13px; color: var(--muted); }
 
 /* ── Report ──────────────────────────────────────────── */
 .report {
