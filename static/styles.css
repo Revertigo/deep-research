@@ -196,6 +196,24 @@ input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-of
 .email:focus { border-color: var(--accent); }
 .email:disabled { opacity: .4; }
 .delivery-note { margin: 0; font-size: 12px; color: var(--muted); }
+.switch-clarify { margin-top: 6px; padding-top: 12px; border-top: 1px solid var(--line); }
+
+/* Clarify step */
+.clarify { margin-top: 10px; display: flex; flex-direction: column; gap: 12px; animation: rise .3s ease both; }
+.clarify-fields { display: flex; flex-direction: column; gap: 10px; }
+.clarify-field { display: flex; flex-direction: column; gap: 6px; }
+.clarify-field label { font-size: 14px; color: var(--text); line-height: 1.4; }
+.clarify-input {
+  border: 1px solid var(--line); background: var(--surface); border-radius: var(--radius-sm);
+  padding: 10px 12px; outline: 0; font-size: 15px; width: 100%; transition: border-color .2s;
+}
+.clarify-input:focus { border-color: var(--accent); }
+.clarify-input::placeholder { color: var(--muted); }
+.clarify-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.chip-primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; padding: 7px 16px; }
+.chip-primary:hover { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); filter: brightness(1.06); }
+.clarify-brief { margin: 0; font-size: 12.5px; color: var(--muted); font-style: italic; }
+.clarify-brief:empty { display: none; }
 
 /* ── Run view ────────────────────────────────────────── */
 .run-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin: 20px 0 26px; }
@@ -298,6 +316,7 @@ input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-of
   .report { padding: 18px 16px 24px; }
   .run-head { flex-direction: column; }
   .pill-version { display: none; }
+  .clarify-actions > * { flex: 1; text-align: center; min-height: 40px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }

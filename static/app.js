@@ -17,6 +17,10 @@ const state = {
   markdown: "",
   query: "",
   running: false,
+  clarify: true,
+  qa: [],
+  runToken: 0,
+  pendingAnswer: null,
 };
 
 /* ── Boot ─────────────────────────────────────────────── */
@@ -41,6 +45,10 @@ async function boot() {
   syncEmail();
 
   $("email-enabled").addEventListener("change", syncEmail);
+  state.clarify = $("clarify-enabled").checked;
+  $("clarify-enabled").addEventListener("change", (e) => { state.clarify = e.target.checked; });
+  $("clarify-form").addEventListener("submit", onClarifyContinue);
+  $("clarify-skip").addEventListener("click", () => answer({ action: "skip" }));
   $("form").addEventListener("submit", onSubmit);
   $("new-run").addEventListener("click", resetToCompose);
   $("copy-md").addEventListener("click", copyMarkdown);
@@ -145,15 +153,25 @@ async function onSubmit(e) {
     email_to: $("email-to").value.trim() || null,
   };
 
+  const token = ++state.runToken;
   startRunView(query);
   state.running = true;
   $("go").disabled = true;
 
   try {
+    let qa = [];
+    if (state.clarify) {
+      qa = await runClarify(query, token);
+      if (qa === null) return; // user left for a new research mid-clarify
+    } else {
+      setStage("clarify", "skipped");
+      $("clarify-note").textContent = "skipped";
+    }
+    state.qa = qa;
     const res = await fetch("/api/research", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ ...body, qa }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
@@ -163,9 +181,93 @@ async function onSubmit(e) {
   } catch (err) {
     showError(err.message || String(err));
   } finally {
-    state.running = false;
-    $("go").disabled = false;
+    if (token === state.runToken) {
+      state.running = false;
+      $("go").disabled = false;
+    }
   }
+}
+
+/* ── Clarify: up to max_rounds of questions, driven here, not by the model ── */
+async function runClarify(query, token) {
+  const max = state.config.clarify.max_rounds;
+  const note = $("clarify-note");
+  let qa = [];
+  let skipped = false;
+  let failed = false;
+  setStage("clarify", "running");
+  for (let round = 1; round <= max; round++) {
+    note.textContent = "thinking…";
+    let res;
+    try {
+      res = await postClarify(query, qa);
+    } catch (err) {
+      if (token !== state.runToken) return null;
+      failed = true;
+      break;
+    }
+    if (token !== state.runToken) return null;
+    if (!res.needs_clarify) break;
+
+    note.textContent = max > 1 ? `round ${round} / ${max}` : "";
+    const reply = await askUser(res);
+    if (token !== state.runToken || reply.action === "cancel") return null;
+    if (reply.action === "skip") { skipped = true; break; }
+    qa = qa.concat(res.questions.map((q, i) => ({ q, a: reply.answers[i] || "no preference" })));
+  }
+  $("clarify-form").classList.add("hidden");
+  setStage("clarify", "done");
+  if (qa.length) note.textContent = `${qa.length} answer${qa.length === 1 ? "" : "s"}`;
+  else if (skipped) note.textContent = "skipped";
+  else if (failed) note.textContent = "questions unavailable, researching as is";
+  else note.textContent = "Question is clear";
+  return qa;
+}
+
+async function postClarify(query, qa) {
+  const res = await fetch("/api/clarify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query, qa, model: state.model.id }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+/* Show one round of questions; resolves when the user continues, skips or leaves. */
+function askUser(res) {
+  const fields = $("clarify-fields");
+  fields.innerHTML = "";
+  res.questions.forEach((q, i) => {
+    const id = `clarify-a-${i}`;
+    const wrap = document.createElement("div");
+    wrap.className = "clarify-field";
+    wrap.innerHTML = `<label for="${id}">${esc(q)}</label>
+      <input type="text" id="${id}" class="clarify-input" maxlength="500" placeholder="no preference" />`;
+    fields.appendChild(wrap);
+  });
+  $("clarify-brief").textContent = res.clarification || "";
+  $("clarify-form").classList.remove("hidden");
+  const first = fields.querySelector("input");
+  if (first) first.focus({ preventScroll: true });
+  return new Promise((resolve) => { state.pendingAnswer = resolve; });
+}
+
+function answer(reply) {
+  const resolve = state.pendingAnswer;
+  if (!resolve) return;
+  state.pendingAnswer = null;
+  $("clarify-form").classList.add("hidden");
+  resolve(reply);
+}
+
+function onClarifyContinue(e) {
+  e.preventDefault();
+  const answers = [...document.querySelectorAll(".clarify-input")].map((el) => el.value.trim());
+  answer({ action: "continue", answers });
 }
 
 async function readSSE(stream, onEvent) {
@@ -196,12 +298,24 @@ function startRunView(query) {
   $("error").classList.add("hidden");
   $("plan-list").innerHTML = "";
   $("search-counter").textContent = "";
+  $("clarify-note").textContent = "";
+  $("clarify-fields").innerHTML = "";
+  $("clarify-brief").textContent = "";
+  $("clarify-form").classList.add("hidden");
+  state.qa = [];
   document.querySelectorAll(".step").forEach((s) => { s.dataset.status = ""; });
   document.querySelectorAll(".step-time").forEach((t) => { t.textContent = ""; });
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 function resetToCompose() {
+  // Leaving mid-clarify abandons that run; a research stream keeps going as before.
+  if (state.pendingAnswer || document.querySelector('.step[data-stage="clarify"][data-status="running"]')) {
+    state.runToken++;
+    answer({ action: "cancel" });
+    state.running = false;
+    $("go").disabled = false;
+  }
   $("run").classList.add("hidden");
   $("compose").classList.remove("hidden");
   $("query").focus();
@@ -283,7 +397,9 @@ function markSearch(index, stateName, text) {
 function renderReport(ev) {
   state.markdown = ev.markdown;
   $("summary").textContent = ev.summary;
-  $("report-meta").textContent = `· ${state.model.id} · ${state.searches} searches · ${ev.elapsed}s`;
+  const n = state.qa.length;
+  const clar = n ? ` · ${n} clarification${n === 1 ? "" : "s"}` : "";
+  $("report-meta").textContent = `· ${state.model.id} · ${state.searches} searches${clar} · ${ev.elapsed}s`;
   const html = DOMPurify.sanitize(marked.parse(ev.markdown, { gfm: true }));
   $("prose").innerHTML = html;
 

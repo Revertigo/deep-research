@@ -17,6 +17,11 @@ DEFAULT_SEARCHES = 5
 MAX_SEARCHES = 12
 MIN_SEARCHES = 1
 
+# Clarifying questions before planning. The round cap is enforced by code
+# (server truncates, UI stops asking), never left to the model.
+MAX_CLARIFY_ROUNDS = 2
+MAX_QUESTIONS_PER_ROUND = 3
+
 # Rough token model per research: fixed part (planner + writer + emailer)
 # plus a per-search part (search agent in/out + its summary fed to the writer).
 EST_FIXED_INPUT = 4_000

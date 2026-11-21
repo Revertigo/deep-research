@@ -4,6 +4,7 @@ Routes:
   GET  /healthz        liveness, no auth
   GET  /               static UI
   GET  /api/config     model catalog + email defaults
+  POST /api/clarify    one round of clarifying questions (JSON)
   POST /api/research   Server-Sent Events stream of pipeline events
 
 All routes except /healthz require HTTP Basic Auth (APP_USER / APP_PASSWORD).
@@ -24,7 +25,17 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from messenger import DEFAULT_EMAIL_TO, email_configured
-from models import DEFAULT_MODEL, DEFAULT_SEARCHES, MAX_SEARCHES, MIN_SEARCHES, catalog, cost_model, is_allowed
+from models import (
+    DEFAULT_MODEL,
+    DEFAULT_SEARCHES,
+    MAX_CLARIFY_ROUNDS,
+    MAX_QUESTIONS_PER_ROUND,
+    MAX_SEARCHES,
+    MIN_SEARCHES,
+    catalog,
+    cost_model,
+    is_allowed,
+)
 from research_manager import ResearchManager
 from version import APP_VERSION
 
@@ -76,12 +87,28 @@ async def healthz():
     return {"ok": True, "version": APP_VERSION}
 
 
+class QAPair(BaseModel):
+    q: str = Field(max_length=MAX_QUERY_CHARS)
+    a: str = Field(max_length=MAX_QUERY_CHARS)
+
+
+# Upper bound on pairs a client can send: every round fully answered.
+MAX_QA_PAIRS = MAX_CLARIFY_ROUNDS * MAX_QUESTIONS_PER_ROUND
+
+
+class ClarifyRequest(BaseModel):
+    query: str = Field(min_length=3, max_length=MAX_QUERY_CHARS)
+    qa: list[QAPair] = Field(default_factory=list, max_length=MAX_QA_PAIRS)
+    model: str = DEFAULT_MODEL
+
+
 class ResearchRequest(BaseModel):
     query: str = Field(min_length=3, max_length=MAX_QUERY_CHARS)
     model: str = DEFAULT_MODEL
     num_searches: int = Field(default=DEFAULT_SEARCHES, ge=MIN_SEARCHES, le=MAX_SEARCHES)
     email_enabled: bool = True
     email_to: str | None = None
+    qa: list[QAPair] = Field(default_factory=list, max_length=MAX_QA_PAIRS)
 
 
 @app.get("/")
@@ -100,11 +127,29 @@ async def config():
         "searches": {"default": DEFAULT_SEARCHES, "min": MIN_SEARCHES, "max": MAX_SEARCHES},
         "cost_model": cost_model(),
         "email": {"configured": email_configured(), "default_to": DEFAULT_EMAIL_TO},
+        "clarify": {"max_rounds": MAX_CLARIFY_ROUNDS, "max_questions": MAX_QUESTIONS_PER_ROUND},
     }
 
 
 def sse(event: dict) -> str:
     return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+
+@app.post("/api/clarify")
+async def clarify(req: ClarifyRequest):
+    if not is_allowed(req.model):
+        raise HTTPException(400, f"Unknown model: {req.model}")
+    qa = [p.model_dump() for p in req.qa]
+    try:
+        topic = await ResearchManager(model=req.model, qa=qa).clarifying_input(req.query.strip())
+    except Exception as exc:
+        raise HTTPException(502, f"Questioner failed: {str(exc)[:300]}")
+    questions = [q for q in topic.questions if q.strip()][:MAX_QUESTIONS_PER_ROUND]
+    return {
+        "needs_clarify": bool(topic.needs_clarify and questions),
+        "questions": questions,
+        "clarification": topic.clarification,
+    }
 
 
 @app.post("/api/research")
@@ -124,7 +169,8 @@ async def research(req: ResearchRequest):
             if not EMAIL_RE.match(email_to):
                 raise HTTPException(400, f"Invalid email address: {email_to}")
 
-    manager = ResearchManager(model=req.model, email_to=email_to, num_searches=req.num_searches, skip_reason=skip_reason)
+    manager = ResearchManager(model=req.model, email_to=email_to, num_searches=req.num_searches, skip_reason=skip_reason,
+                              qa=[p.model_dump() for p in req.qa])
 
     async def stream():
         try:

@@ -11,7 +11,13 @@ replaced by a FastAPI backend and a hand-built frontend.
 
 ## Features
 
-- **Live timeline.** Plan → Search → Write → Deliver, streamed over
+- **Clarifying questions first (optional).** Before planning, a questioner
+  agent may ask up to 3 short questions per round, for at most
+  `MAX_CLARIFY_ROUNDS` rounds (2, in `models.py`). Answer, leave blank
+  ("no preference"), or skip. The Q&A pairs go verbatim to the planner and
+  the writer. The round cap is enforced by code, not by the model. Toggle in
+  Settings (on by default).
+- **Live timeline.** Clarify → Plan → Search → Write → Deliver, streamed over
   Server-Sent Events. Each planned search appears as a card with its reason,
   spins while running, then expands to its summary.
 - **Model picker.** Ten OpenAI models grouped by cost tier (cheap → premium)
@@ -32,20 +38,21 @@ replaced by a FastAPI backend and a hand-built frontend.
 ## How it works
 
 ```
-query ──► Planner ──► N × Searcher (parallel, WebSearchTool) ──► Writer ──► Emailer (optional)
-            │                 │                                   │
-            └── SSE: stage ───┴── SSE: search_done ───────────────┴── SSE: report
+query ──► Questioner ⟲ (0–2 rounds, /api/clarify) ──► Planner ──► N × Searcher (parallel, WebSearchTool) ──► Writer ──► Emailer (optional)
+                                                        │                 │                                   │
+                                                        └── SSE: stage ───┴── SSE: search_done ───────────────┴── SSE: report
 ```
 
 | File | Role |
 | --- | --- |
-| `app.py` | FastAPI: `/` (UI), `/api/config`, `/api/research` (SSE stream) |
+| `app.py` | FastAPI: `/` (UI), `/api/config`, `/api/clarify` (one questioner round, JSON), `/api/research` (SSE stream) |
 | `research_manager.py` | Pipeline orchestration; yields structured events |
-| `research_agents.py` | Agent factories: planner, searcher, writer, emailer |
-| `models.py` | Model catalog, tiers, prices, cost-estimate coefficients |
+| `research_agents.py` | Agent factories: questioner, planner, searcher, writer, emailer; `render_context` |
+| `models.py` | Model catalog, tiers, prices, cost-estimate coefficients, clarify caps |
 | `messenger.py` | SMTP email and Pushover |
 | `version.py` | `APP_VERSION`, shown in the UI and used to cache-bust assets |
 | `static/` | `index.html`, `styles.css`, `app.js` (no build step) |
+| `tests/` | `pytest tests` — mocked agents, no OpenAI calls |
 
 Agents are created per run, so the chosen model and search count apply to
 the whole pipeline. The email recipient is bound into the tool, never chosen
