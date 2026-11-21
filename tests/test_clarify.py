@@ -120,3 +120,30 @@ def test_auth_required(calls, client):
     assert client.get("/api/clarify").status_code == 401
     assert client.post("/api/clarify", headers=auth_header(password="wrong"), json={"query": "Explain X"}).status_code == 401
     assert calls == []
+
+
+def test_long_question_is_clipped_and_echo_accepted(calls, client, monkeypatch):
+    base_run = research_manager.Runner.run
+    long_q = "Why " + "x" * 600 + "?"
+
+    async def long_questioner(agent, input, *args, **kwargs):
+        if agent.name == "Questioner Agent":
+            calls.append((agent.name, input))
+            return SimpleNamespace(final_output=ClarifyingTopic(needs_clarify=True, questions=[long_q], clarification="c"))
+        return await base_run(agent, input, *args, **kwargs)
+
+    monkeypatch.setattr(research_manager.Runner, "run", long_questioner)
+    r = client.post("/api/clarify", headers=auth_header(), json={"query": "Explain X", "model": "gpt-5.4-mini"})
+    assert r.status_code == 200
+    q = r.json()["questions"][0]
+    assert len(q) <= app_module.MAX_QUERY_CHARS
+
+    qa = [{"q": q, "a": "no preference"}]
+    r = client.post("/api/clarify", headers=auth_header(), json={"query": "Explain X", "qa": qa, "model": "gpt-5.4-mini"})
+    assert r.status_code == 200
+    r = client.post(
+        "/api/research",
+        headers=auth_header(),
+        json={"query": "Explain X", "model": "gpt-5.4-mini", "num_searches": 1, "email_enabled": False, "qa": qa},
+    )
+    assert r.status_code == 200

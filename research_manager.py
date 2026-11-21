@@ -16,13 +16,13 @@ from typing import AsyncIterator
 from agents import Runner, gen_trace_id, trace
 
 from research_agents import (
+    ClarifyingTopic,
     ReportData,
     WebSearchItem,
     WebSearchPlan,
-    ClarifyingTopic,
     make_emailer,
-    make_questioner,
     make_planner,
+    make_questioner,
     make_searcher,
     make_writer,
     render_context,

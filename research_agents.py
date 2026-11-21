@@ -16,7 +16,7 @@ load_dotenv(override=True)
 # --- Questioner ------------------------------------------------------------------
 
 class ClarifyingTopic(BaseModel):
-    needs_clarify: bool = Field(description="True only if answering questions would change how the research is planned. " \
+    needs_clarify: bool = Field(description="True only if answering questions would change how the research is planned. "
                                             "False when the query is already specific or every question has been answered.")
     questions: list[str] = Field(description="1-3 questions, empty when needs_clarify is false. Never repeat a question already answered.")
     clarification: str = Field(description="One-sentence restatement of the research goal including the answers so far.")
@@ -75,6 +75,7 @@ def make_planner(model: str, num_searches: int) -> Agent:
         model=model,
         output_type=WebSearchPlan,
     )
+
 
 # --- Search ------------------------------------------------------------------
 

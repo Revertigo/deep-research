@@ -144,7 +144,8 @@ async def clarify(req: ClarifyRequest):
         topic = await ResearchManager(model=req.model, qa=qa).clarifying_input(req.query.strip())
     except Exception as exc:
         raise HTTPException(502, f"Questioner failed: {str(exc)[:300]}")
-    questions = [q for q in topic.questions if q.strip()][:MAX_QUESTIONS_PER_ROUND]
+    # Clip to QAPair.q's limit so echoing a question back in qa never fails validation.
+    questions = [q.strip()[:MAX_QUERY_CHARS] for q in topic.questions if q.strip()][:MAX_QUESTIONS_PER_ROUND]
     return {
         "needs_clarify": bool(topic.needs_clarify and questions),
         "questions": questions,

@@ -175,7 +175,7 @@ async function onSubmit(e) {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || `HTTP ${res.status}`);
+      throw new Error(errorText(err, res.status));
     }
     await readSSE(res.body, handleEvent);
   } catch (err) {
@@ -232,9 +232,17 @@ async function postClarify(query, qa) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || `HTTP ${res.status}`);
+    throw new Error(errorText(err, res.status));
   }
   return res.json();
+}
+
+/* FastAPI sends a string detail for HTTPException and a list of {msg, ...} for 422. */
+function errorText(err, status) {
+  const d = err && err.detail;
+  if (Array.isArray(d) && d.length) return d[0].msg || `HTTP ${status}`;
+  if (typeof d === "string" && d) return d;
+  return `HTTP ${status}`;
 }
 
 /* Show one round of questions; resolves when the user continues, skips or leaves. */
