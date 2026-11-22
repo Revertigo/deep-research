@@ -33,9 +33,11 @@ EST_PER_SEARCH_INPUT = 2_900
 EST_PER_SEARCH_OUTPUT = 400
 WEB_SEARCH_CALL_USD = 0.01  # $10 / 1k calls
 
-# Report language. Hebrew tokenizes at roughly 2x English, so the fixed output
-# (planner + writer; the writer dominates) is scaled when the report is Hebrew.
-# Search summaries stay in English and are not scaled.
+# Report language. Hebrew tokenizes at roughly 2x English, so the UI scales the
+# fixed output (planner + writer; the writer dominates) by this factor when the
+# report is Hebrew (app.js estimate(), via cost_model). Search summaries stay in
+# English and are not scaled. The server's est_cost in the catalog is always the
+# English figure; the UI recomputes live.
 LANGUAGES = ("en", "he")
 DEFAULT_LANGUAGE = "en"
 HEBREW_OUTPUT_FACTOR = 2.2
@@ -66,10 +68,9 @@ MODELS = [
 ]
 
 
-def estimate_cost(model: dict, searches: int = DEFAULT_SEARCHES, language: str = DEFAULT_LANGUAGE) -> float:
-    fixed_output = EST_FIXED_OUTPUT * (HEBREW_OUTPUT_FACTOR if language == "he" else 1)
+def estimate_cost(model: dict, searches: int = DEFAULT_SEARCHES) -> float:
     tokens_in = EST_FIXED_INPUT + EST_PER_SEARCH_INPUT * searches
-    tokens_out = fixed_output + EST_PER_SEARCH_OUTPUT * searches
+    tokens_out = EST_FIXED_OUTPUT + EST_PER_SEARCH_OUTPUT * searches
     return (model["input"] * tokens_in + model["output"] * tokens_out) / 1_000_000 + WEB_SEARCH_CALL_USD * searches
 
 

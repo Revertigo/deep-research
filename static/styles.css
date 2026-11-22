@@ -227,8 +227,8 @@ input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-of
 .switch-clarify { margin-top: 6px; padding-top: 12px; border-top: 1px solid var(--line); }
 
 /* Report language: same segmented control as Orchestration, inside the Delivery card */
-.language { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 6px; padding-top: 12px; border-top: 1px solid var(--line); }
-.language .seg { padding: 5px 14px; font-size: 14px; }
+.language { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 12px; margin-top: 6px; padding-top: 12px; border-top: 1px solid var(--line); } /* wraps under ~330px so the Delivery card never overflows */
+.language .seg { padding: 5px 14px; } /* font-size stays 15px (.seg): iOS Safari zooms on focus below 15px */
 
 /* Clarify step */
 .clarify { margin-top: 10px; display: flex; flex-direction: column; gap: 12px; animation: rise .3s ease both; }

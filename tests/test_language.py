@@ -151,6 +151,36 @@ def test_make_writer_language_directive(language, expect):
     instructions = make_writer("gpt-5.4-mini", language).instructions
     assert f"Write the report, the short summary and the follow-up questions {expect}." in instructions
     assert ("in Hebrew" in instructions) == (language == "he")
+    # "Keep ... in English" only makes sense for a non-English report.
+    assert ("Keep technical terms" in instructions) == (language == "he")
+    assert instructions.endswith("\n") and "\n\n\n" not in instructions
+
+
+def test_run_llm_report_event_carries_language(calls, monkeypatch):
+    from test_llm_orchestration import REPORT, collect_sync, fake_streamed, happy_script
+
+    for language in ("he", "en"):
+        fake_streamed(monkeypatch, happy_script, REPORT.model_dump_json(), turns=3)
+        rm = research_manager.ResearchManager(model="gpt-5.4-mini", num_searches=2, orchestration="llm",
+                                              report_language=language)
+        events = collect_sync(rm.run("EV adoption"))
+        report = next(e for e in events if e["type"] == "report")
+        assert report["report_language"] == language
+
+
+# --- Cost: the Hebrew factor is applied client-side ---------------------------
+
+def test_hebrew_cost_factor_exposed_and_used_by_client():
+    """The server's est_cost is the English figure; app.js scales fixed output by hebrew_output_factor."""
+    from models import HEBREW_OUTPUT_FACTOR, cost_model
+
+    assert cost_model()["hebrew_output_factor"] == HEBREW_OUTPUT_FACTOR == 2.2
+    app_js = (Path(__file__).resolve().parent.parent / "static" / "app.js").read_text(encoding="utf-8")
+    estimate_fn = app_js[app_js.index("function estimate("):app_js.index("function updateCosts(")]
+    assert "hebrew_output_factor" in estimate_fn and 'state.reportLanguage === "he"' in estimate_fn
+    assert "fixed_output * factor" in estimate_fn
+    assert app_js.count("Hebrew uses ~2x the tokens") == 2  # go-cost tooltip + model legend, Hebrew only
+    assert 'he ? "Hebrew uses ~2x the tokens" : ""' in app_js
 
 
 def test_write_report_tool_uses_same_language_as_code_path(calls):

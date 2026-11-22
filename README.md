@@ -71,7 +71,10 @@ traces (the Trace link on each report).
 
 `report_language` (`"en"` | `"he"`, default `"en"`) goes with every
 `/api/clarify` and `/api/research` request; the server validates it with a
-`Literal` and `/api/config` exposes the default. What each agent does with it:
+`Literal` and `/api/config` exposes the default. The Hebrew auto-detect is
+client-side only (`app.js`, Unicode block `\u0590-\u05FF` in the query); the
+server never guesses a language, it uses what the request says. What each
+agent does with it:
 
 | Agent | Language rule |
 | --- | --- |

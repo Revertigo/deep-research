@@ -123,14 +123,14 @@ for 5-10 pages of content, at least 1000 words.
 # chooses its own search language (English, plus Hebrew for Israel-local topics) and
 # the searcher always summarizes in English, so only the writer gets this directive.
 LANGUAGE_NAMES = {"en": "English", "he": "Hebrew"}
-WRITER_LANGUAGE_INSTRUCTIONS = """
-Write the report, the short summary and the follow-up questions in {language}.
-Keep technical terms, product names, library/API names and code in English.
-"""
+WRITER_LANGUAGE_INSTRUCTIONS = "Write the report, the short summary and the follow-up questions in {language}.\n"
+WRITER_KEEP_ENGLISH_TERMS = "Keep technical terms, product names, library/API names and code in English.\n"
 
 
 def make_writer(model: str, language: str = "en") -> Agent:
     instructions = WRITER_INSTRUCTIONS + WRITER_LANGUAGE_INSTRUCTIONS.format(language=LANGUAGE_NAMES[language])
+    if language != "en":
+        instructions += WRITER_KEEP_ENGLISH_TERMS
     return Agent(name="Writer Agent", instructions=instructions, model=model, output_type=ReportData)
 
 
