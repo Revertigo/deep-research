@@ -38,6 +38,12 @@ replaced by a FastAPI backend and a hand-built frontend.
 - **Two orchestration modes.** Code (default) or LLM, picked per run in the
   Web searches card, so the same query can be run both ways and compared.
   See below.
+- **Report in English or Hebrew.** A "Report language" control in the
+  Delivery card (default English). It flips to Hebrew by itself when the
+  query contains Hebrew letters; a click on the control wins for that query
+  and auto-detect comes back with "New research". Hebrew reports render
+  right-to-left on the page and in the email, with code kept left-to-right.
+  Each model card carries a Hebrew-quality flag (see below).
 - **Mobile layout** and a version tag in the header so you always know
   which build you're looking at.
 
@@ -61,6 +67,38 @@ To compare: run the same query with the same model and search count in each
 mode, then compare the report, the elapsed time, the manager line and the two
 traces (the Trace link on each report).
 
+## Report language
+
+`report_language` (`"en"` | `"he"`, default `"en"`) goes with every
+`/api/clarify` and `/api/research` request; the server validates it with a
+`Literal` and `/api/config` exposes the default. What each agent does with it:
+
+| Agent | Language rule |
+| --- | --- |
+| Questioner | asks in the language the query was written in (not the report language) |
+| Planner | writes search queries in English; for Israel-local topics (Israeli prices, regulations, companies, services, local news) it adds Hebrew queries where Hebrew sources are likely better. No UI control; the planner judges |
+| Searcher | summaries always in English |
+| Writer | report, summary and follow-up questions in the chosen language; technical terms, product/library/API names and code stay in English. Same directive in both orchestration modes (`make_writer(model, language)`) |
+
+The `report` SSE event carries `report_language`, and the UI sets
+`dir="rtl" lang="he"` on the summary, the report body and the follow-up
+chips from it (never by sniffing the text). Headings, lists and tables align
+right; `<pre>`/`<code>` stay LTR. The timeline and the report toolbar stay
+LTR. The email does the same with `<div dir="rtl" lang="he">` and inline
+styles (bullets and quote bars on the right, code `dir="ltr"`); the plain-text
+part is the unchanged markdown. The subject is derived from the first H1
+whatever the script.
+
+**Hebrew quality per model.** Every entry in `models.py` has
+`hebrew: "weak" | "fair" | "good"`: `gpt-5-nano` is weak, the other cheap
+models (`gpt-6-luna`, `gpt-5.4-nano`, `gpt-5.6-luna`, `gpt-5-mini`) are fair,
+`gpt-5.4-mini` and everything above is good. With Hebrew selected the model
+cards show a "Weak Hebrew" (amber, warning icon) or "Fair Hebrew" (neutral,
+info icon) badge, a weak selected model gets a one-line warning under the
+grid and a tinted cost note on the Investigate button, and the cost estimate
+scales the fixed output tokens by `HEBREW_OUTPUT_FACTOR` (2.2; Hebrew
+tokenizes at roughly twice English). All of it disappears in English.
+
 ## How it works
 
 ```
@@ -73,8 +111,8 @@ query ──► Questioner ⟲ (0–2 rounds, /api/clarify) ──► Planner �
 | --- | --- |
 | `app.py` | FastAPI: `/` (UI), `/api/config`, `/api/clarify` (one questioner round, JSON), `/api/research` (SSE stream) |
 | `research_manager.py` | Pipeline orchestration (`run_code`, `run_llm`); yields structured events; `build_email` (markdown → HTML, no model) |
-| `research_agents.py` | Agent factories: questioner, planner, searcher, writer, manager (+ its tools); `render_context` |
-| `models.py` | Model catalog, tiers, prices, cost-estimate coefficients, clarify caps |
+| `research_agents.py` | Agent factories: questioner, planner, searcher, writer (+ language directive), manager (+ its tools); `render_context` |
+| `models.py` | Model catalog, tiers, prices, Hebrew-quality flags, cost-estimate coefficients, clarify caps, languages |
 | `messenger.py` | SMTP email and Pushover |
 | `version.py` | `APP_VERSION`, shown in the UI and used to cache-bust assets |
 | `static/` | `index.html`, `styles.css`, `app.js` (no build step) |

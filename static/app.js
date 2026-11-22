@@ -13,6 +13,8 @@ const state = {
   model: null,
   searches: 5,
   orchestration: "code",
+  reportLanguage: "en",
+  languageTouched: false, // a manual click on the language control wins over auto-detect until "New research"
   stageStart: {},
   trace: null,
   markdown: "",
@@ -36,6 +38,7 @@ async function boot() {
   selectModel(state.config.default_model);
   initSearches();
   initOrchestration();
+  initLanguage();
 
   const email = state.config.email;
   $("email-to").placeholder = email.default_to || "you@example.com";
@@ -67,9 +70,15 @@ function renderExamples() {
     b.type = "button";
     b.className = "chip";
     b.textContent = text;
-    b.addEventListener("click", () => { $("query").value = text; $("query").focus(); });
+    b.addEventListener("click", () => { setQuery(text); $("query").focus(); });
     wrap.appendChild(b);
   });
+}
+
+/* Every programmatic fill of the textarea goes through here so auto-detect sees it too. */
+function setQuery(text) {
+  $("query").value = text;
+  syncLanguageFromQuery();
 }
 
 function renderModels() {
@@ -82,15 +91,28 @@ function renderModels() {
     card.role = "radio";
     card.dataset.id = m.id;
     card.setAttribute("aria-checked", "false");
+    card.dataset.hebrew = m.hebrew || "good";
     card.innerHTML = `
       <span class="tier tier-${m.tier}">${m.tier}</span>
       <span class="model-name">${m.label}</span>
       <span class="model-cost">≈ ${fmtCost(m.est_cost)} / run</span>
-      <span class="model-blurb">${m.blurb}</span>`;
+      <span class="model-blurb">${m.blurb}</span>
+      ${hebrewBadge(m.hebrew)}`;
     card.title = `$${m.input} in · $${m.output} out per 1M tokens`;
     card.addEventListener("click", () => selectModel(m.id));
     wrap.appendChild(card);
   });
+}
+
+/* Shown only while the report language is Hebrew (CSS on .models[data-lang="he"]). Icon + text, never color alone. */
+const HEBREW_BADGE = {
+  weak: { text: "Weak Hebrew", icon: '<path d="M8 1.5 15 14H1L8 1.5Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 6v4M8 11.6v.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>' },
+  fair: { text: "Fair Hebrew", icon: '<circle cx="8" cy="8" r="6.3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 7v4.2M8 4.6v.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>' },
+};
+function hebrewBadge(level) {
+  const b = HEBREW_BADGE[level];
+  if (!b) return "";
+  return `<span class="hebrew-badge hebrew-${level}"><svg class="badge-icon" viewBox="0 0 16 16" aria-hidden="true">${b.icon}</svg>${b.text}</span>`;
 }
 
 function selectModel(id) {
@@ -98,23 +120,38 @@ function selectModel(id) {
   document.querySelectorAll(".model").forEach((c) => c.setAttribute("aria-checked", String(c.dataset.id === state.model.id)));
   $("pill-model").textContent = state.model.id;
   updateCosts();
+  paintHebrewFlags();
 }
 
-/* Cost estimate: fixed part + per-search part + web-search tool fee */
+/* Cost estimate: fixed part + per-search part + web-search tool fee.
+   Hebrew output tokenizes at ~2x, so the fixed (writer-dominated) output is scaled. */
 function estimate(model, searches) {
   const c = state.config.cost_model;
+  const factor = state.reportLanguage === "he" ? (c.hebrew_output_factor || 1) : 1;
   const tin = c.fixed_input + c.per_search_input * searches;
-  const tout = c.fixed_output + c.per_search_output * searches;
+  const tout = c.fixed_output * factor + c.per_search_output * searches;
   return (model.input * tin + model.output * tout) / 1e6 + c.web_search_call_usd * searches;
 }
 
 function updateCosts() {
   const n = state.searches;
+  const he = state.reportLanguage === "he";
   $("go-cost").textContent = "≈ " + fmtCost(estimate(state.model, n));
+  $("go-cost").title = he ? "Hebrew uses ~2x the tokens" : "";
+  $("model-hint").textContent = he ? "cost is an estimate per research · Hebrew uses ~2x the tokens" : "cost is an estimate per research";
   document.querySelectorAll(".model").forEach((card) => {
     const m = state.config.models.find((x) => x.id === card.dataset.id);
     card.querySelector(".model-cost").textContent = `≈ ${fmtCost(estimate(m, n))} / run`;
   });
+}
+
+/* Badges on the cards, the warning line and the tinted cost note: all Hebrew-only, all gone in English. */
+function paintHebrewFlags() {
+  const he = state.reportLanguage === "he";
+  $("models").dataset.lang = state.reportLanguage;
+  const weak = he && state.model.hebrew === "weak";
+  $("hebrew-warning").classList.toggle("hidden", !weak);
+  $("go").classList.toggle("go-warn", weak);
 }
 
 function initSearches() {
@@ -146,6 +183,37 @@ function initOrchestration() {
 
 function modeLabel() { return state.orchestration === "llm" ? "LLM-orchestrated" : "Code-orchestrated"; }
 
+/* Report language: "en" | "he". Auto-flips to Hebrew when the query has Hebrew letters;
+   a click on the control wins for the rest of this query (reset by "New research"). */
+const HEBREW_RE = /[\u0590-\u05FF]/;
+
+function initLanguage() {
+  const cfg = state.config.report_language || { default: "en", options: ["en", "he"] };
+  const segs = [...document.querySelectorAll("#report-language .seg")];
+  segs.forEach((b) => b.addEventListener("click", () => {
+    state.languageTouched = true;
+    pickLanguage(b.dataset.value);
+  }));
+  $("query").addEventListener("input", syncLanguageFromQuery);
+  pickLanguage(cfg.default);
+}
+
+function pickLanguage(value) {
+  const cfg = state.config.report_language || { default: "en", options: ["en", "he"] };
+  state.reportLanguage = cfg.options.includes(value) ? value : cfg.default;
+  document.querySelectorAll("#report-language .seg").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.value === state.reportLanguage)));
+  updateCosts();
+  paintHebrewFlags();
+}
+
+function syncLanguageFromQuery() {
+  if (state.languageTouched) return;
+  const want = HEBREW_RE.test($("query").value) ? "he" : "en";
+  if (want !== state.reportLanguage) pickLanguage(want);
+}
+
+function languageLabel() { return state.reportLanguage === "he" ? "Hebrew" : "English"; }
+
 function syncEmail() {
   const on = $("email-enabled").checked;
   $("email-to").disabled = !on;
@@ -168,6 +236,7 @@ async function onSubmit(e) {
     email_enabled: $("email-enabled").checked,
     email_to: $("email-to").value.trim() || null,
     orchestration: state.orchestration,
+    report_language: state.reportLanguage,
   };
 
   const token = ++state.runToken;
@@ -245,7 +314,7 @@ async function postClarify(query, qa) {
   const res = await fetch("/api/clarify", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query, qa, model: state.model.id }),
+    body: JSON.stringify({ query, qa, model: state.model.id, report_language: state.reportLanguage }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -270,8 +339,8 @@ function askUser(res) {
     const id = `clarify-a-${i}`;
     const wrap = document.createElement("div");
     wrap.className = "clarify-field";
-    wrap.innerHTML = `<label for="${id}">${esc(q)}</label>
-      <input type="text" id="${id}" class="clarify-input" maxlength="500" placeholder="no preference" />`;
+    wrap.innerHTML = `<label for="${id}" dir="auto">${esc(q)}</label>
+      <input type="text" id="${id}" class="clarify-input" maxlength="500" placeholder="no preference" dir="auto" />`;
     fields.appendChild(wrap);
   });
   $("clarify-brief").textContent = res.clarification || "";
@@ -346,6 +415,8 @@ function resetToCompose() {
   }
   $("run").classList.add("hidden");
   $("compose").classList.remove("hidden");
+  state.languageTouched = false; // auto-detect is back on for the next query
+  syncLanguageFromQuery();
   $("query").focus();
 }
 
@@ -432,9 +503,11 @@ function renderReport(ev) {
   $("summary").textContent = ev.summary;
   const n = state.qa.length;
   const clar = n ? ` · ${n} clarification${n === 1 ? "" : "s"}` : "";
-  $("report-meta").textContent = `· ${state.model.id} · ${state.searches} searches${clar} · ${modeLabel()} · ${ev.elapsed}s`;
+  const lang = ev.report_language === "he" ? " · Hebrew" : "";
+  $("report-meta").textContent = `· ${state.model.id} · ${state.searches} searches${clar} · ${modeLabel()}${lang} · ${ev.elapsed}s`;
   const html = DOMPurify.sanitize(marked.parse(ev.markdown, { gfm: true }));
   $("prose").innerHTML = html;
+  setReportDirection(ev.report_language);
 
   const fu = $("followups");
   fu.innerHTML = "";
@@ -446,12 +519,24 @@ function renderReport(ev) {
     ev.follow_ups.forEach((q) => {
       const b = document.createElement("button");
       b.type = "button"; b.className = "chip"; b.textContent = q;
-      b.addEventListener("click", () => { resetToCompose(); $("query").value = q; });
+      b.dir = "auto"; // a mixed-language question keeps its own direction inside the RTL block
+      b.addEventListener("click", () => { resetToCompose(); setQuery(q); });
       fu.appendChild(b);
     });
   }
   $("report").classList.remove("hidden");
   $("report").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+/* The server says which language the report is in (report event); the summary, the prose and
+   the follow-up chips flip to RTL for Hebrew. The report bar and the timeline stay LTR. */
+function setReportDirection(language) {
+  const rtl = language === "he";
+  ["summary", "prose", "followups"].forEach((id) => {
+    const el = $(id);
+    if (rtl) { el.setAttribute("dir", "rtl"); el.setAttribute("lang", "he"); }
+    else { el.removeAttribute("dir"); el.removeAttribute("lang"); }
+  });
 }
 
 function showError(msg) {

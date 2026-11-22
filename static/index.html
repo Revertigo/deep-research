@@ -29,7 +29,7 @@
 
       <form id="form" autocomplete="off">
         <div class="query-box">
-          <textarea id="query" rows="2" maxlength="500" required></textarea>
+          <textarea id="query" rows="2" maxlength="500" dir="auto" required></textarea>
           <button type="submit" class="go" id="go">
             <span class="go-label">Investigate</span>
             <span class="go-cost" id="go-cost">≈ $0.06</span>
@@ -43,8 +43,12 @@
         <div class="settings">
           <!-- Model -->
           <fieldset class="setting">
-            <legend class="eyebrow">Model <span class="hint">cost is an estimate per research</span></legend>
+            <legend class="eyebrow">Model <span class="hint" id="model-hint">cost is an estimate per research</span></legend>
             <div class="models" id="models" role="radiogroup"></div>
+            <p class="model-warning hidden" id="hebrew-warning" role="status">
+              <svg class="badge-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5 15 14H1L8 1.5Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 6v4M8 11.6v.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+              This model writes clumsy Hebrew. GPT-5.4 mini or better is recommended.
+            </p>
           </fieldset>
 
           <!-- Scope -->
@@ -79,6 +83,14 @@
               </label>
               <input type="email" id="email-to" class="email" placeholder="you@example.com" />
               <p class="delivery-note" id="delivery-note">Report is always shown here. Email goes to the address above.</p>
+              <div class="language">
+                <span class="switch-label">Report language</span>
+                <div class="segmented" id="report-language" role="radiogroup" aria-label="Report language">
+                  <button type="button" class="seg" role="radio" data-value="en" aria-checked="true">English</button>
+                  <button type="button" class="seg" role="radio" data-value="he" aria-checked="false">Hebrew</button>
+                </div>
+              </div>
+              <p class="delivery-note" id="language-note">Switches to Hebrew on its own when you type in Hebrew. Your click wins.</p>
               <label class="switch switch-clarify">
                 <input type="checkbox" id="clarify-enabled" checked />
                 <span class="track"><span class="knob"></span></span>
@@ -96,7 +108,7 @@
       <div class="run-head">
         <div>
           <span class="eyebrow">Researching <span class="hint" id="run-mode"></span></span>
-          <h2 class="run-query" id="run-query"></h2>
+          <h2 class="run-query" id="run-query" dir="auto"></h2>
         </div>
         <button class="ghost" id="new-run" type="button">New research</button>
       </div>

@@ -29,6 +29,7 @@ An answer like 'don't know' or 'no preference' counts as answered; treat it as n
 If you're sure you have enough information from the input query about the topic and you don't think you need additional
 clarification, then you can skip asking.
 Return needs_clarify=false with an empty questions list when the query is already specific or every question has been answered.
+Ask the clarifying questions in the same language the user wrote the query in.
 """
 
 def make_questioner(model: str) -> Agent:
@@ -65,6 +66,9 @@ You are a research assistant. Given a user query, come up with a set of web sear
 to perform to best answer the query. Output exactly {n} terms to query for.
 Make the searches complementary: each should cover a different angle, source type or
 sub-question, with no two searches that would return the same results.
+Write search queries in English. If the topic is local to Israel or a Hebrew-speaking context
+(Israeli prices, regulations, companies, services, local news), add Hebrew-language queries
+where Hebrew sources are likely better.
 """
 
 
@@ -85,6 +89,7 @@ produce a concise summary of the results. The summary must 2-3 paragraphs and le
 Capture the main points and be succinct. Reply only with the summary.
 The input may start with the user's research goal and their clarification answers.
 Focus the summary on what is relevant to them and skip unrelated angles the pages cover.
+Write the summary in English whatever language the search term or the sources are in.
 """
 
 
@@ -114,9 +119,19 @@ The final output should be in markdown format, and it should be lengthy and deta
 for 5-10 pages of content, at least 1000 words.
 """
 
+# Report language: the one agent whose output language the user picks. The planner
+# chooses its own search language (English, plus Hebrew for Israel-local topics) and
+# the searcher always summarizes in English, so only the writer gets this directive.
+LANGUAGE_NAMES = {"en": "English", "he": "Hebrew"}
+WRITER_LANGUAGE_INSTRUCTIONS = """
+Write the report, the short summary and the follow-up questions in {language}.
+Keep technical terms, product names, library/API names and code in English.
+"""
 
-def make_writer(model: str) -> Agent:
-    return Agent(name="Writer Agent", instructions=WRITER_INSTRUCTIONS, model=model, output_type=ReportData)
+
+def make_writer(model: str, language: str = "en") -> Agent:
+    instructions = WRITER_INSTRUCTIONS + WRITER_LANGUAGE_INSTRUCTIONS.format(language=LANGUAGE_NAMES[language])
+    return Agent(name="Writer Agent", instructions=instructions, model=model, output_type=ReportData)
 
 
 # --- Manager (LLM orchestration) ---------------------------------------------
@@ -144,12 +159,14 @@ SEARCH_FAILED_PREFIX = "Search failed: "
 WRITE_FAILED_PREFIX = "Report not written: "
 
 
-def make_manager_tools(model: str, context: str, num_searches: int, runner) -> list:
+def make_manager_tools(model: str, context: str, num_searches: int, runner, language: str = "en") -> list:
     """The manager's tools, as closures over the planner, searcher and writer.
 
     `runner` is the Runner class (passed in so tests can fake Runner.run the
     same way they do for the code path). Each tool returns a string for the
     model: JSON for the plan and the report, the summary text for a search.
+    `language` is the report language, given to the writer exactly as in the
+    code path.
 
     Budgets are enforced here, not only in the prompt: at most `num_searches`
     searcher runs, and one writer run (a second write_report call returns the
@@ -157,7 +174,7 @@ def make_manager_tools(model: str, context: str, num_searches: int, runner) -> l
     """
     planner = make_planner(model, num_searches)
     searcher = make_searcher(model)
-    writer = make_writer(model)
+    writer = make_writer(model, language)
     searches_started = 0
     written: list[str] = []  # the first write_report result, once there is one
 
@@ -253,4 +270,4 @@ def make_manager(model: str, num_searches: int, tools: list) -> Agent:
 
 __all__ = ["make_questioner", "make_planner", "make_searcher", "make_writer", "make_manager",
            "make_manager_tools", "stop_when_report_written", "push", "render_context", "ClarifyingTopic", "WebSearchItem", "WebSearchPlan",
-           "ReportData", "MANAGER_INSTRUCTIONS", "SEARCH_FAILED_PREFIX", "WRITE_FAILED_PREFIX"]
+           "ReportData", "LANGUAGE_NAMES", "MANAGER_INSTRUCTIONS", "SEARCH_FAILED_PREFIX", "WRITE_FAILED_PREFIX"]

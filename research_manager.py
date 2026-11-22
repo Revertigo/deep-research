@@ -33,6 +33,7 @@ import markdown
 from agents import MaxTurnsExceeded, Runner, gen_trace_id, trace
 
 import messenger
+from models import DEFAULT_LANGUAGE, LANGUAGES
 from research_agents import (
     SEARCH_FAILED_PREFIX,
     ClarifyingTopic,
@@ -53,15 +54,18 @@ ORCHESTRATIONS = ("code", "llm")
 
 class ResearchManager:
     def __init__(self, model: str, email_to: str | None = None, num_searches: int = 5, skip_reason: str | None = None,
-                 qa: list[dict] | None = None, orchestration: str = "code"):
+                 qa: list[dict] | None = None, orchestration: str = "code", report_language: str = DEFAULT_LANGUAGE):
         if orchestration not in ORCHESTRATIONS:
             raise ValueError(f"orchestration must be one of {ORCHESTRATIONS}, got {orchestration!r}")
+        if report_language not in LANGUAGES:
+            raise ValueError(f"report_language must be one of {LANGUAGES}, got {report_language!r}")
         self.model = model
         self.email_to = email_to  # None -> no email, report shown on screen only
         self.num_searches = num_searches
         self.skip_reason = skip_reason
         self.qa = qa or []  # [{"q": ..., "a": ...}] collected by /api/clarify rounds before the run
         self.orchestration = orchestration
+        self.report_language = report_language  # "en" | "he": the writer's output language; RTL on screen and in mail
 
     async def run(self, query: str) -> AsyncIterator[dict]:
         runner = self.run_llm if self.orchestration == "llm" else self.run_code
@@ -78,13 +82,13 @@ class ResearchManager:
             "orchestration": self.orchestration,
         }
 
-    @staticmethod
-    def _report_event(report: ReportData, started: float) -> dict:
+    def _report_event(self, report: ReportData, started: float) -> dict:
         return {
             "type": "report",
             "summary": report.short_summary,
             "markdown": report.markdown_report,
             "follow_ups": report.follow_up_questions,
+            "report_language": self.report_language,  # the UI sets dir="rtl" from this, never by sniffing the text
             "elapsed": round(time.monotonic() - started, 1),
         }
 
@@ -153,7 +157,7 @@ class ResearchManager:
         trace_id = gen_trace_id()
         started = time.monotonic()
         context = render_context(query, self.qa)
-        tools = make_manager_tools(self.model, context, self.num_searches, Runner)
+        tools = make_manager_tools(self.model, context, self.num_searches, Runner, self.report_language)
         manager = make_manager(self.model, self.num_searches, tools)
 
         with trace("Research trace", trace_id=trace_id):
@@ -277,12 +281,12 @@ class ResearchManager:
 
     async def write_report(self, context: str, search_results: list[str]) -> ReportData:
         input_message = f"Original query and clarifications:\n{context}\nSummarized search results: {search_results}"
-        result = await Runner.run(make_writer(self.model), input_message)
+        result = await Runner.run(make_writer(self.model, self.report_language), input_message)
         return result.final_output
 
     async def send_email(self, report: ReportData) -> None:
         """Build the mail in code (no model call) and hand it to messenger. Blocking SMTP runs off the loop."""
-        subject, text_body, html_body = build_email(report)
+        subject, text_body, html_body = build_email(report, self.report_language)
         await asyncio.to_thread(messenger.send_email, subject, text_body, html_body, to=self.email_to)
 
 
@@ -316,6 +320,18 @@ _INLINE_STYLES = {
     "td": "border:1px solid #e2e8f0;padding:6px 10px;vertical-align:top",
     "hr": "border:0;border-top:1px solid #e2e8f0;margin:24px 0",
 }
+# Hebrew mail: the body is dir="rtl", so side-specific styles swap sides. Code
+# stays dir="ltr" (see markdown_to_html). Mail clients honor dir but not CSS
+# logical properties, hence explicit overrides.
+_INLINE_STYLES_RTL = {
+    **_INLINE_STYLES,
+    "ul": "margin:0 0 14px;padding-right:24px;padding-left:0",
+    "ol": "margin:0 0 14px;padding-right:24px;padding-left:0",
+    "blockquote": "margin:0 0 16px;padding:10px 16px;border-right:4px solid #cbd5e1;background:#f8fafc;color:#334155",
+    "th": "border:1px solid #e2e8f0;padding:6px 10px;text-align:right;background:#f8fafc",
+    "pre": _INLINE_STYLES["pre"] + ";text-align:left",
+}
+_LTR_TAGS = ("pre", "code")
 
 
 def derive_subject(report: ReportData) -> str:
@@ -334,26 +350,39 @@ def derive_subject(report: ReportData) -> str:
     return SUBJECT_PREFIX + title
 
 
-def markdown_to_html(text: str) -> str:
-    """Report markdown -> HTML fragment with inline styles (mail clients drop <style> blocks and classes)."""
+def markdown_to_html(text: str, rtl: bool = False) -> str:
+    """Report markdown -> HTML fragment with inline styles (mail clients drop <style> blocks and classes).
+
+    With `rtl`, lists/quotes/tables get the right-hand variants and <pre>/<code>
+    carry dir="ltr" so code reads left to right inside a Hebrew body.
+    """
     body = markdown.markdown(text, extensions=["fenced_code", "tables"])
+    styles = _INLINE_STYLES_RTL if rtl else _INLINE_STYLES
 
     def add_style(match: re.Match) -> str:
         tag, attrs = match.group(1), match.group(2) or ""
-        style = _INLINE_STYLES[tag]
+        style = styles[tag]
+        direction = ' dir="ltr"' if rtl and tag in _LTR_TAGS else ""
         existing = re.search(r'\sstyle="([^"]*)"', attrs)
         if existing:  # the tables extension emits text-align on th/td; keep it, append ours
             attrs = attrs.replace(existing.group(0), f' style="{existing.group(1).rstrip("; ")};{style}"')
-            return f"<{tag}{attrs}>"
-        return f'<{tag} style="{style}"{attrs}>'
+            return f"<{tag}{direction}{attrs}>"
+        return f'<{tag}{direction} style="{style}"{attrs}>'
 
-    tags = "|".join(_INLINE_STYLES)
+    tags = "|".join(styles)
     return re.sub(rf"<({tags})(\s[^>]*)?>", add_style, body)
 
 
-def build_email(report: ReportData) -> tuple[str, str, str]:
-    """(subject, text_body, html_body) for a report. Nothing is reworded or truncated."""
+def build_email(report: ReportData, language: str = DEFAULT_LANGUAGE) -> tuple[str, str, str]:
+    """(subject, text_body, html_body) for a report. Nothing is reworded or truncated.
+
+    `language` "he" wraps the HTML body in <div dir="rtl" lang="he">; the text body is the
+    same markdown either way (plain-text clients pick the direction themselves).
+    """
     subject = derive_subject(report)
+    rtl = language == "he"
+    styles = _INLINE_STYLES_RTL if rtl else _INLINE_STYLES
+    direction = ' dir="rtl" lang="he"' if rtl else ""
 
     text_parts = [f"> {report.short_summary.strip()}", report.markdown_report]
     if report.follow_up_questions:
@@ -361,24 +390,25 @@ def build_email(report: ReportData) -> tuple[str, str, str]:
     text_body = "\n\n".join(text_parts) + "\n"
 
     summary_html = (
-        f'<blockquote style="{_INLINE_STYLES["blockquote"]};font-size:17px;line-height:1.5;font-style:italic">'
+        f'<blockquote style="{styles["blockquote"]};font-size:17px;line-height:1.5;font-style:italic">'
         f"{html.escape(report.short_summary.strip())}</blockquote>"
     )
     follow_ups_html = ""
     if report.follow_up_questions:
-        items = "".join(f'<li style="{_INLINE_STYLES["li"]}">{html.escape(q)}</li>' for q in report.follow_up_questions)
+        auto = ' dir="auto"' if rtl else ""  # an English question inside the Hebrew list keeps its own direction
+        items = "".join(f'<li{auto} style="{styles["li"]}">{html.escape(q)}</li>' for q in report.follow_up_questions)
         follow_ups_html = (
-            f'<hr style="{_INLINE_STYLES["hr"]}">'
+            f'<hr style="{styles["hr"]}">'
             f'<p style="margin:0 0 8px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b">'
             f"{FOLLOW_UPS_TITLE}</p>"
-            f'<ul style="{_INLINE_STYLES["ul"]}">{items}</ul>'
+            f'<ul style="{styles["ul"]}">{items}</ul>'
         )
     html_body = (
         '<!DOCTYPE html><html><head><meta charset="utf-8">'
         f"<title>{html.escape(subject)}</title></head>"
         '<body style="margin:0;padding:24px 12px;background:#ffffff">'
-        f'<div style="max-width:720px;margin:0 auto;font-family:{_FONT};font-size:16px;line-height:1.6;color:#1f2937">'
-        f"{summary_html}{markdown_to_html(report.markdown_report)}{follow_ups_html}"
+        f'<div{direction} style="max-width:720px;margin:0 auto;font-family:{_FONT};font-size:16px;line-height:1.6;color:#1f2937">'
+        f"{summary_html}{markdown_to_html(report.markdown_report, rtl)}{follow_ups_html}"
         "</div></body></html>"
     )
     return subject, text_body, html_body

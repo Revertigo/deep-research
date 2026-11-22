@@ -27,10 +27,12 @@ from pydantic import BaseModel, Field
 
 from messenger import DEFAULT_EMAIL_TO, email_configured
 from models import (
+    DEFAULT_LANGUAGE,
     DEFAULT_MODEL,
     DEFAULT_SEARCHES,
     MAX_CLARIFY_ROUNDS,
     MAX_QUESTIONS_PER_ROUND,
+    LANGUAGES,
     MAX_SEARCHES,
     MIN_SEARCHES,
     catalog,
@@ -101,6 +103,7 @@ class ClarifyRequest(BaseModel):
     query: str = Field(min_length=3, max_length=MAX_QUERY_CHARS)
     qa: list[QAPair] = Field(default_factory=list, max_length=MAX_QA_PAIRS)
     model: str = DEFAULT_MODEL
+    report_language: Literal["en", "he"] = DEFAULT_LANGUAGE
 
 
 class ResearchRequest(BaseModel):
@@ -111,6 +114,7 @@ class ResearchRequest(BaseModel):
     email_to: str | None = None
     qa: list[QAPair] = Field(default_factory=list, max_length=MAX_QA_PAIRS)
     orchestration: Literal["code", "llm"] = "code"
+    report_language: Literal["en", "he"] = DEFAULT_LANGUAGE
 
 
 @app.get("/")
@@ -131,6 +135,7 @@ async def config():
         "email": {"configured": email_configured(), "default_to": DEFAULT_EMAIL_TO},
         "clarify": {"max_rounds": MAX_CLARIFY_ROUNDS, "max_questions": MAX_QUESTIONS_PER_ROUND},
         "orchestration": {"default": "code", "options": ["code", "llm"]},
+        "report_language": {"default": DEFAULT_LANGUAGE, "options": list(LANGUAGES)},
     }
 
 
@@ -144,7 +149,7 @@ async def clarify(req: ClarifyRequest):
         raise HTTPException(400, f"Unknown model: {req.model}")
     qa = [p.model_dump() for p in req.qa]
     try:
-        topic = await ResearchManager(model=req.model, qa=qa).clarifying_input(req.query.strip())
+        topic = await ResearchManager(model=req.model, qa=qa, report_language=req.report_language).clarifying_input(req.query.strip())
     except Exception as exc:
         raise HTTPException(502, f"Questioner failed: {str(exc)[:300]}")
     # Clip to QAPair.q's limit so echoing a question back in qa never fails validation.
@@ -174,7 +179,8 @@ async def research(req: ResearchRequest):
                 raise HTTPException(400, f"Invalid email address: {email_to}")
 
     manager = ResearchManager(model=req.model, email_to=email_to, num_searches=req.num_searches, skip_reason=skip_reason,
-                              qa=[p.model_dump() for p in req.qa], orchestration=req.orchestration)
+                              qa=[p.model_dump() for p in req.qa], orchestration=req.orchestration,
+                              report_language=req.report_language)
 
     async def stream():
         try:
