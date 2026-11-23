@@ -1,9 +1,9 @@
 """Model catalog offered in the UI.
 
 Prices are USD per 1M tokens (standard tier) from the OpenAI pricing page,
-checked 2026-11-19. `est_cost` is a rough per-research estimate assuming
-~25k input + ~10k output tokens across all agents; the web-search tool fee
-is not included. Edit freely; the UI reads this list through /api/models.
+checked 2026-11-19. `est_cost` is a rough per-research estimate from the
+EST_* coefficients below (about 18k input + 4k output tokens at 5 searches)
+plus the web-search tool fee. Edit freely; the UI reads this list through /api/models.
 """
 
 DEFAULT_MODEL = "gpt-5.4-mini"
@@ -24,11 +24,12 @@ MAX_QUESTIONS_PER_ROUND = 3
 
 # Rough token model per research: fixed part (planner + writer) plus a
 # per-search part (search agent in/out + its summary fed to the writer).
-# shortcut: the fixed coefficients were tuned when an emailer agent re-typed the
-# report (since v1.3.2 the email is built in code, zero tokens); re-tune from a
-# few traces when the estimate looks high.
+# Fixed output since v1.4.2: planner plan ~300 + writer report <=1000 words
+# (~1300 tokens) + short summary and follow-ups ~300, rounded up. Before, the
+# writer wrote 5-10 pages and an emailer re-typed it (6_500).
+# shortcut: not re-tuned from traces; adjust when the estimate looks off.
 EST_FIXED_INPUT = 4_000
-EST_FIXED_OUTPUT = 6_500
+EST_FIXED_OUTPUT = 2_000
 EST_PER_SEARCH_INPUT = 2_900
 EST_PER_SEARCH_OUTPUT = 400
 WEB_SEARCH_CALL_USD = 0.01  # $10 / 1k calls

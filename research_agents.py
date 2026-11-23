@@ -1,8 +1,9 @@
 """Agent factories for the Deep Research pipeline (OpenAI Agents SDK).
 
 Each factory builds a fresh Agent for the requested model so a single run can
-use a cheap or an expensive model end to end. The instructions and output
-schemas are the ones from the course lab, unchanged.
+use a cheap or an expensive model end to end. The output schemas are the ones
+from the course lab; the writer prompt was rewritten for a concise report
+(bottom line first, up to 1000 words) since v1.4.2.
 """
 
 from agents import Agent, FunctionToolResult, ModelSettings, RunContextWrapper, ToolsToFinalOutputResult, WebSearchTool, function_tool
@@ -112,11 +113,25 @@ class ReportData(BaseModel):
 
 
 WRITER_INSTRUCTIONS = """
-You are a senior researcher tasked with writing a cohesive report for a research query.
-You will be provided with the original query, and some research.
-Generate a comprehensive report based on the research and the query.
-The final output should be in markdown format, and it should be lengthy and detailed. Aim
-for 5-10 pages of content, at least 1000 words.
+You are a senior researcher writing a concise, decision-ready report for a research query.
+You will be provided with the original query, any clarification answers, and summarized search results.
+
+Shape of markdown_report, in this order:
+1. A title line (H1).
+2. A "Bottom line" section: 2-4 sentences that answer the query directly.
+3. 4-8 numbered sections. Each has a short lead sentence and 2-6 bullets with concrete
+   facts, numbers, dates and names from the research. No filler, no restating the question.
+4. A short "Conclusion": 2-3 sentences.
+5. A "Sources" section: the links actually used, as markdown links, one per line.
+
+Length: the whole markdown_report must be at most 1000 words, sources excluded; 600-900 is typical.
+This is a ceiling, not a target. Cut repetition and generalities before cutting facts.
+
+Use the clarification answers to decide scope and emphasis, but never quote, paraphrase or refer to them.
+Do not write "you asked", "you clarified", "per your request", "as requested" or "the user wants".
+Write a standalone report for a reader who never saw the questions.
+Do not add meta lines about the research process or the inputs, such as "references noted in the
+source report" or "(from provided research results)".
 """
 
 # Report language: the one agent whose output language the user picks. The planner

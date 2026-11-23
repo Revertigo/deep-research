@@ -3,7 +3,8 @@
 A small multi-agent web research app built on the
 [OpenAI Agents SDK](https://openai.github.io/openai-agents-python/).
 Ask a question; three agents plan the searches, run them in parallel and write
-a long-form report, which the app optionally emails you whole. You watch every
+a concise report (bottom line first, 4-8 numbered sections, at most 1000 words,
+sources at the end), which the app optionally emails you whole. You watch every
 step live.
 
 Grew out of the week-2 Deep Research lab from Ed Donner's
@@ -16,8 +17,9 @@ replaced by a FastAPI backend and a hand-built frontend.
   agent may ask up to 3 short questions per round, for at most
   `MAX_CLARIFY_ROUNDS` rounds (2, in `models.py`). Answer, leave blank
   ("no preference"), or skip. The Q&A pairs go verbatim to the planner,
-  every searcher and the writer. The round cap is enforced by code, not by the model. Toggle in
-  Settings (on by default).
+  every searcher and the writer; the writer uses them to set scope but never
+  quotes them back ("you clarified...") in the report. The round cap is
+  enforced by code, not by the model. Toggle in Settings (on by default).
 - **Live timeline.** Clarify → Plan → Search → Write → Deliver, streamed over
   Server-Sent Events. Each planned search appears as a card with its reason,
   spins while running, then expands to its summary.
@@ -165,8 +167,10 @@ before sharing the link.
 
 Estimate per research = fixed tokens (planner + writer; the email costs no tokens) +
 per-search tokens, at the model's list price, plus the web search tool fee
-($10 per 1k calls). With `gpt-5.4-mini` and 5 searches that's about $0.10;
-with `gpt-6.2-astra` about $0.55. Coefficients live in `models.py`.
+($10 per 1k calls). With `gpt-5.4-mini` and 5 searches that's about $0.08;
+with `gpt-6.2-astra` about $0.36. Coefficients live in `models.py`; the fixed
+output assumes the concise writer (report of at most 1000 words, about 1300
+tokens, plus plan, summary and follow-ups: `EST_FIXED_OUTPUT = 2_000`).
 
 ## Versioning
 

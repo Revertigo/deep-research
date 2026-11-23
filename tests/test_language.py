@@ -233,3 +233,40 @@ def test_send_email_uses_manager_language(monkeypatch):
 def test_bad_language_rejected_in_manager():
     with pytest.raises(ValueError):
         research_manager.ResearchManager(model="gpt-5.4-mini", report_language="fr")
+
+
+# --- Concise writer (v1.4.2): bottom line first, 1000-word ceiling, no echo of the Q&A ---
+
+def test_writer_prompt_is_concise_with_bottom_line():
+    instructions = make_writer("gpt-5.4-mini").instructions
+    assert "at most 1000 words" in instructions
+    assert "Bottom line" in instructions
+    assert "Sources" in instructions
+    assert "at least 1000" not in instructions
+    assert "5-10 pages" not in instructions
+    assert "lengthy" not in instructions
+
+
+def test_writer_prompt_never_echoes_clarifications():
+    instructions = make_writer("gpt-5.4-mini").instructions
+    assert "never quote, paraphrase or refer to them" in instructions
+    assert '"you clarified"' in instructions and '"as requested"' in instructions
+    assert "reader who never saw the questions" in instructions
+
+
+def test_hebrew_writer_keeps_language_directives_after_rewrite():
+    from research_agents import WRITER_INSTRUCTIONS, WRITER_KEEP_ENGLISH_TERMS, WRITER_LANGUAGE_INSTRUCTIONS
+
+    instructions = make_writer("gpt-5.4-mini", "he").instructions
+    assert instructions.startswith(WRITER_INSTRUCTIONS)
+    assert instructions.endswith(WRITER_LANGUAGE_INSTRUCTIONS.format(language="Hebrew") + WRITER_KEEP_ENGLISH_TERMS)
+    assert "at most 1000 words" in instructions and HEBREW_DIRECTIVE in instructions
+
+
+def test_cost_fixed_output_matches_concise_writer():
+    """~1300 tokens for a 1000-word report plus plan, summary and follow-ups; was 6_500 for the 5-10 page report."""
+    from models import EST_FIXED_OUTPUT, MODELS, cost_model, estimate_cost
+
+    assert EST_FIXED_OUTPUT == 2_000 == cost_model()["fixed_output"]
+    mini = next(m for m in MODELS if m["id"] == "gpt-5.4-mini")
+    assert round(estimate_cost(mini, 5), 3) == 0.082
