@@ -240,11 +240,51 @@ def test_bad_language_rejected_in_manager():
 def test_writer_prompt_is_concise_with_bottom_line():
     instructions = make_writer("gpt-5.4-mini").instructions
     assert "at most 1000 words" in instructions
-    assert "Bottom line" in instructions
+    assert "short_summary is the bottom line" in instructions
     assert "Sources" in instructions
     assert "at least 1000" not in instructions
     assert "5-10 pages" not in instructions
     assert "lengthy" not in instructions
+
+
+# --- v1.4.3: no duplicate bottom line, linked sources, clean lists, plain wording ---
+
+def test_writer_prompt_has_no_bottom_line_section_in_report():
+    """short_summary is rendered once as the pull-quote (page and mail), so the report must not restate it."""
+    instructions = make_writer("gpt-5.4-mini").instructions
+    assert 'Do not write a "Bottom line", "Summary" or "Key takeaways"' in instructions
+    assert "short_summary already is the bottom line" in instructions
+    assert "starting right after the title" in instructions
+    assert "at most one sentence" in instructions and "Otherwise omit the conclusion" in instructions
+    assert '2. A "Bottom line" section' not in instructions
+
+
+def test_writer_prompt_wants_linked_sources_list():
+    instructions = make_writer("gpt-5.4-mini").instructions
+    assert '"## Sources" section: a bulleted markdown list, one source per line' in instructions
+    assert '"[Title](https://...)"' in instructions
+    assert "invent a URL" in instructions and "only sources that appear in the search summaries" in instructions
+    assert "give its title plain" in instructions
+
+
+def test_writer_prompt_markdown_hygiene_and_plain_wording():
+    instructions = make_writer("gpt-5.4-mini").instructions
+    assert "blank line before every heading and before every list" in instructions
+    assert "Never put a list\nitem on the same line as its lead-in sentence" in instructions
+    assert '"sensor-adjacent"' in instructions and 'say "unverified"' in instructions
+
+
+def test_questioner_asks_only_plan_changing_questions_and_rarely_a_second_round():
+    assert "only when the answer would change the search plan" in QUESTIONER_INSTRUCTIONS
+    assert "Do not ask for thoroughness" in QUESTIONER_INSTRUCTIONS
+    assert ("ask a second round only if an answer created a new ambiguity that changes the plan"
+            in QUESTIONER_INSTRUCTIONS)
+    assert "big picture and the smaller details" not in QUESTIONER_INSTRUCTIONS
+    # unchanged rules
+    assert "Don't ask more than 3 follow-up questions" in QUESTIONER_INSTRUCTIONS
+    assert "'don't know' or 'no preference' counts as answered" in QUESTIONER_INSTRUCTIONS
+    assert "needs_clarify=false with an empty questions list" in QUESTIONER_INSTRUCTIONS
+    assert "same language the user wrote the query in" in QUESTIONER_INSTRUCTIONS
 
 
 def test_writer_prompt_never_echoes_clarifications():

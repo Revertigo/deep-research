@@ -3,9 +3,9 @@
 A small multi-agent web research app built on the
 [OpenAI Agents SDK](https://openai.github.io/openai-agents-python/).
 Ask a question; three agents plan the searches, run them in parallel and write
-a concise report (bottom line first, 4-8 numbered sections, at most 1000 words,
-sources at the end), which the app optionally emails you whole. You watch every
-step live.
+a concise report (a 2-4 sentence bottom line shown as a pull-quote, then 4-8
+numbered sections of at most 1000 words, then a linked list of sources), which
+the app optionally emails you whole. You watch every step live.
 
 Grew out of the week-2 Deep Research lab from Ed Donner's
 [AI Agents course](https://github.com/ed-donner/agents), with the Gradio UI
@@ -15,8 +15,10 @@ replaced by a FastAPI backend and a hand-built frontend.
 
 - **Clarifying questions first (optional).** Before planning, a questioner
   agent may ask up to 3 short questions per round, for at most
-  `MAX_CLARIFY_ROUNDS` rounds (2, in `models.py`). Answer, leave blank
-  ("no preference"), or skip. The Q&A pairs go verbatim to the planner,
+  `MAX_CLARIFY_ROUNDS` rounds (2, in `models.py`). It asks only when the
+  answer would change the search plan, and a second round only when an
+  answer opened a new ambiguity. Answer, leave blank ("no preference"), or
+  skip. The Q&A pairs go verbatim to the planner,
   every searcher and the writer; the writer uses them to set scope but never
   quotes them back ("you clarified...") in the report. The round cap is
   enforced by code, not by the model. Toggle in Settings (on by default).

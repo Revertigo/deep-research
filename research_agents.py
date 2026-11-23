@@ -3,7 +3,7 @@
 Each factory builds a fresh Agent for the requested model so a single run can
 use a cheap or an expensive model end to end. The output schemas are the ones
 from the course lab; the writer prompt was rewritten for a concise report
-(bottom line first, up to 1000 words) since v1.4.2.
+(bottom line in short_summary, up to 1000 words) since v1.4.2.
 """
 
 from agents import Agent, FunctionToolResult, ModelSettings, RunContextWrapper, ToolsToFinalOutputResult, WebSearchTool, function_tool
@@ -23,12 +23,14 @@ class ClarifyingTopic(BaseModel):
     clarification: str = Field(description="One-sentence restatement of the research goal including the answers so far.")
 
 QUESTIONER_INSTRUCTIONS = """
-You are a questioner assistant. Given a user query and any answers so far, come up with clarifying questions about the topic to research
-to make sure you understand the big picture and the smaller details about the topic to research. These follow-up questions will
-help to improve the future planning searches about this topic. Don't ask more than 3 follow-up questions in total for each round.
+You are a questioner assistant. Given a user query and any answers so far, decide whether a clarifying question
+is needed before the web searches are planned.
+Ask a question only when the answer would change the search plan: the scope, the time frame, the region, the
+audience, or which sub-questions to search. Do not ask for thoroughness, for background, or to confirm what the
+query already says. Don't ask more than 3 follow-up questions in total for each round.
 An answer like 'don't know' or 'no preference' counts as answered; treat it as no constraint.
-If you're sure you have enough information from the input query about the topic and you don't think you need additional
-clarification, then you can skip asking.
+After the first round, ask a second round only if an answer created a new ambiguity that changes the plan.
+Otherwise return needs_clarify=false. One round is enough for most queries.
 Return needs_clarify=false with an empty questions list when the query is already specific or every question has been answered.
 Ask the clarifying questions in the same language the user wrote the query in.
 """
@@ -107,7 +109,7 @@ def make_searcher(model: str) -> Agent:
 # --- Writer ------------------------------------------------------------------
 
 class ReportData(BaseModel):
-    short_summary: str = Field(description="A short 2-3 sentence summary of the findings.")
+    short_summary: str = Field(description="The bottom line: 2-4 sentences that answer the query directly. Shown above the report.")
     markdown_report: str = Field(description="The final report")
     follow_up_questions: list[str] = Field(description="Suggested topics to research further")
 
@@ -116,16 +118,30 @@ WRITER_INSTRUCTIONS = """
 You are a senior researcher writing a concise, decision-ready report for a research query.
 You will be provided with the original query, any clarification answers, and summarized search results.
 
+short_summary is the bottom line: 2-4 sentences that answer the query directly. It is shown
+above the report as a pull-quote, so the report must not repeat it.
+
 Shape of markdown_report, in this order:
 1. A title line (H1).
-2. A "Bottom line" section: 2-4 sentences that answer the query directly.
-3. 4-8 numbered sections. Each has a short lead sentence and 2-6 bullets with concrete
-   facts, numbers, dates and names from the research. No filler, no restating the question.
-4. A short "Conclusion": 2-3 sentences.
-5. A "Sources" section: the links actually used, as markdown links, one per line.
+2. 4-8 numbered sections, starting right after the title. Each has a short lead sentence and
+   2-6 bullets with concrete facts, numbers, dates and names from the research. No filler,
+   no restating the question. Do not write a "Bottom line", "Summary" or "Key takeaways"
+   section: short_summary already is the bottom line.
+3. Optionally a "Conclusion" of at most one sentence, only if it adds something new, such as
+   what evidence would change the verdict. Otherwise omit the conclusion.
+4. A "## Sources" section: a bulleted markdown list, one source per line, each as a markdown
+   link "[Title](https://...)". List only sources that appear in the search summaries; never
+   invent a URL. If a summary names a source without a URL, give its title plain.
 
 Length: the whole markdown_report must be at most 1000 words, sources excluded; 600-900 is typical.
 This is a ceiling, not a target. Cut repetition and generalities before cutting facts.
+
+Markdown hygiene: put a blank line before every heading and before every list. Never put a list
+item on the same line as its lead-in sentence; end the sentence, leave a blank line, then start
+the list with "- " on its own line.
+
+Plain wording: name the sensor, the source or the method, or say "unverified". Do not coin hedge
+compounds such as "sensor-adjacent" or "radar/IR/video-adjacent".
 
 Use the clarification answers to decide scope and emphasis, but never quote, paraphrase or refer to them.
 Do not write "you asked", "you clarified", "per your request", "as requested" or "the user wants".
