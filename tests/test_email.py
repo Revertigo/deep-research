@@ -124,7 +124,7 @@ def test_long_report_arrives_whole(sent):
     assert long_md in text_body
     for i in range(40):
         assert f"Section {i}</h2>" in html_body
-        assert f"Paragraph {i} " * 60 in html_body
+        assert (f"Paragraph {i} " * 60).rstrip() + "</p>" in html_body  # CommonMark drops the trailing space
     assert "Dig deeper" not in html_body and "Dig deeper" not in text_body
 
 
@@ -138,9 +138,70 @@ def test_no_model_call_when_emailing(sent, monkeypatch):
     assert len(sent) == 1
 
 
+# The writer's shape: numbered sections, each with nested bullets, then a Sources list of links.
+# Bullets sit under the number's content column ("1. " -> 3 spaces, "- " -> 2 spaces), which is
+# what marked (the page) nests; the mail must nest the same markdown the same way.
+NESTED_MD = """# Nested report
+
+1. **Market size.** Sales grew fast.
+   - 1.2M units in 2024
+   - Norway at 89% share
+2. **Charging.** Density lags.
+   - 70k public points
+   - South of Europe behind, see [ACEA](https://www.acea.auto/report)
+3. **Policy.** The 2035 ban holds.
+   - Sub-bullet with 2-space nesting:
+     - deeper
+     - still deeper
+
+## Sources
+
+- [ACEA report](https://www.acea.auto/report)
+- [IEA Global EV Outlook](https://www.iea.org/reports/global-ev-outlook-2024)
+"""
+
+
+def test_email_nests_lists_like_the_page():
+    html_body = research_manager.markdown_to_html(NESTED_MD)
+    # Every section's bullets live inside that section's <li>, not as a flat list after it.
+    ordered = html_body[html_body.index("<ol") : html_body.index("</ol>")]
+    sections = ordered.split("<li style=\"margin:0 0 6px\"><strong>")[1:]
+    assert [s.split("</strong>")[0] for s in sections] == ["Market size.", "Charging.", "Policy."]
+    for inner in sections:
+        assert "<ul" in inner and inner.count("<li") >= 2 and inner.rstrip().endswith("</ul>\n</li>")
+    assert html_body.count("<ol") == 1  # one ordered list, no flat <ul> restarts between sections
+    assert html_body.count("<li") == 3 + 2 + 2 + 1 + 2 + 2  # sections, their bullets, sub-bullets, sources
+    assert "deeper</li>" in html_body and "still deeper</li>" in html_body
+    # Links survive as anchors, with our inline style.
+    assert '<a style="color:#2563eb" href="https://www.acea.auto/report">ACEA</a>' in html_body
+    assert html_body.count('href="https://www.acea.auto/report"') == 2
+    assert 'href="https://www.iea.org/reports/global-ev-outlook-2024"' in html_body
+    assert "Sources</h2>" in html_body
+
+
+def test_paren_ordered_marker_is_a_list():
+    html_body = research_manager.markdown_to_html("1) First\n   - a\n2) Second\n")
+    assert html_body.count("<ol") == 1 and html_body.count("<li") == 3
+    assert "<li" in html_body.split("</ol>")[0] and "<ul" in html_body.split("</ol>")[0]
+
+
+def test_nested_lists_keep_hebrew_rtl():
+    rep = report(markdown=NESTED_MD, follow_ups=[])
+    _, _, html_body = research_manager.build_email(rep, "he")
+    assert '<div dir="rtl" lang="he"' in html_body
+    assert "padding-right:24px" in html_body and "padding-left:24px" not in html_body
+    assert html_body.count("<ul") == html_body.count('<ul style="margin:0 0 14px;padding-right:24px;padding-left:0">')
+    assert "<ol" in html_body.split("</ol>")[0] and "<ul" in html_body.split("</ol>")[0]
+
+
+def test_raw_html_in_report_is_escaped():
+    html_body = research_manager.markdown_to_html("text <script>alert(1)</script> more")
+    assert "<script>" not in html_body and "&lt;script&gt;" in html_body
+
+
 def test_table_alignment_kept_alongside_inline_style():
     html_body = research_manager.markdown_to_html("| a | b |\n| --- | ---: |\n| 1 | 2 |")
     assert html_body.count("<th ") == 2 and html_body.count("<td ") == 2
-    assert 'style="text-align: right;border:' in html_body  # alignment merged into our style, not a second attribute
+    assert 'style="text-align:right;border:' in html_body  # alignment merged into our style, not a second attribute
     assert html_body.count("style=") == 5  # table + 2 th + 2 td
     assert not research_manager.re.search(r"<\w+[^>]*style=[^>]*style=", html_body)

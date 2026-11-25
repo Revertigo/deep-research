@@ -127,8 +127,9 @@ query ──► Questioner ⟲ (0–2 rounds, /api/clarify) ──► Planner �
 
 Agents are created per run, so the chosen model and search count apply to
 the whole pipeline. No agent touches the email: the recipient comes from the
-request and the body from the writer's report, converted with the `markdown`
-package (`fenced_code`, `tables`) and inline CSS so Gmail renders it.
+request and the body from the writer's report, converted with `markdown-it-py`
+(CommonMark + GFM tables, the same spec family as the page's `marked`, so nested
+lists render alike) and inline CSS so Gmail renders it.
 
 ## Run locally
 

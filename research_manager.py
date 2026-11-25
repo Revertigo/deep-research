@@ -29,7 +29,7 @@ import re
 import time
 from typing import AsyncIterator
 
-import markdown
+from markdown_it import MarkdownIt
 from agents import MaxTurnsExceeded, Runner, gen_trace_id, trace
 
 import messenger
@@ -333,6 +333,11 @@ _INLINE_STYLES_RTL = {
 }
 _LTR_TAGS = ("pre", "code")
 
+# Same spec family as the page's marked (CommonMark + GFM tables), so nested lists,
+# "1)" markers and 2-space bullet nesting render identically in the mail. Raw HTML in
+# the report is escaped (html=False): the writer emits markdown, and the page runs DOMPurify.
+_MARKDOWN = MarkdownIt("commonmark", {"html": False}).enable(["table", "strikethrough"])
+
 
 def derive_subject(report: ReportData) -> str:
     """'Deep Research: ' + first H1 of the report, else the first line of short_summary; ~80 chars."""
@@ -356,7 +361,7 @@ def markdown_to_html(text: str, rtl: bool = False) -> str:
     With `rtl`, lists/quotes/tables get the right-hand variants and <pre>/<code>
     carry dir="ltr" so code reads left to right inside a Hebrew body.
     """
-    body = markdown.markdown(text, extensions=["fenced_code", "tables"])
+    body = _MARKDOWN.render(text)
     styles = _INLINE_STYLES_RTL if rtl else _INLINE_STYLES
 
     def add_style(match: re.Match) -> str:
@@ -364,7 +369,7 @@ def markdown_to_html(text: str, rtl: bool = False) -> str:
         style = styles[tag]
         direction = ' dir="ltr"' if rtl and tag in _LTR_TAGS else ""
         existing = re.search(r'\sstyle="([^"]*)"', attrs)
-        if existing:  # the tables extension emits text-align on th/td; keep it, append ours
+        if existing:  # the table rule emits text-align on th/td; keep it, append ours
             attrs = attrs.replace(existing.group(0), f' style="{existing.group(1).rstrip("; ")};{style}"')
             return f"<{tag}{direction}{attrs}>"
         return f'<{tag}{direction} style="{style}"{attrs}>'
