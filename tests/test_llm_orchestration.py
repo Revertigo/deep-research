@@ -138,23 +138,39 @@ async def collect(gen):
 
 # --- (a) API validation ------------------------------------------------------
 
-def test_config_exposes_orchestration(calls, client):
-    r = client.get("/api/config", headers=auth_header())
-    assert r.json()["orchestration"] == {"default": "code", "options": ["code", "llm"]}
+def test_config_hides_orchestration(calls, client):
+    """Orchestration is a server-side design choice, so the UI learns nothing about it."""
+    assert "orchestration" not in client.get("/api/config", headers=auth_header()).json()
 
 
-def test_research_rejects_unknown_orchestration(calls, client):
+def test_orchestration_env_default_is_code(monkeypatch):
+    monkeypatch.delenv("ORCHESTRATION", raising=False)
+    assert app_module.orchestration_from_env() == "code"
+    assert app_module.ORCHESTRATION == "code"  # what the imported app actually runs with
+    monkeypatch.setenv("ORCHESTRATION", " LLM ")
+    assert app_module.orchestration_from_env() == "llm"
+    monkeypatch.setenv("ORCHESTRATION", "foo")
+    with pytest.raises(ValueError):
+        app_module.orchestration_from_env()
+
+
+def test_request_orchestration_field_is_ignored(calls, client):
+    """A stale client still sending `orchestration` gets the server's mode (code), not a 422."""
     r = client.post("/api/research", headers=auth_header(),
-                    json={"query": "EV adoption", "model": "gpt-5.4-mini", "orchestration": "foo"})
-    assert r.status_code == 422
-    assert calls == []
+                    json={"query": "EV adoption", "model": "gpt-5.4-mini", "num_searches": 1, "email_enabled": False,
+                          "orchestration": "llm"})
+    assert r.status_code == 200
+    events = [json.loads(line[6:]) for line in r.text.splitlines() if line.startswith("data: ")]
+    assert events[0]["orchestration"] == "code"
+    assert [n for n, _ in calls] == ["Planner Agent", "Search Agent", "Search Agent", "Writer Agent"]  # run_code, no manager
 
 
-def test_research_accepts_llm_and_streams_mapped_events(calls, client, monkeypatch):
+def test_env_llm_routes_research_to_run_llm(calls, client, monkeypatch):
+    monkeypatch.setattr(app_module, "ORCHESTRATION", "llm")  # what ORCHESTRATION=llm at startup sets
     captured = fake_streamed(monkeypatch, happy_script, REPORT, turns=4)
     r = client.post("/api/research", headers=auth_header(),
                     json={"query": "EV adoption", "model": "gpt-5.4-mini", "num_searches": 2, "email_enabled": False,
-                          "orchestration": "llm", "qa": [{"q": "Which region?", "a": "Europe"}]})
+                          "qa": [{"q": "Which region?", "a": "Europe"}]})
     assert r.status_code == 200
     events = [json.loads(line[6:]) for line in r.text.splitlines() if line.startswith("data: ")]
     assert not [e for e in events if e["type"] == "error"], events

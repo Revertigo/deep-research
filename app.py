@@ -3,7 +3,7 @@
 Routes:
   GET  /healthz        liveness, no auth
   GET  /               static UI
-  GET  /api/config     model catalog, email defaults, orchestration modes
+  GET  /api/config     model catalog, email defaults, clarify caps
   POST /api/clarify    one round of clarifying questions (JSON)
   POST /api/research   Server-Sent Events stream of pipeline events
 
@@ -39,7 +39,7 @@ from models import (
     cost_model,
     is_allowed,
 )
-from research_manager import ResearchManager
+from research_manager import ORCHESTRATIONS, ResearchManager
 from version import APP_VERSION
 
 load_dotenv(override=True)
@@ -47,6 +47,21 @@ load_dotenv(override=True)
 STATIC = Path(__file__).parent / "static"
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 MAX_QUERY_CHARS = 500
+
+
+def orchestration_from_env() -> str:
+    """Server-side design choice, read once at startup. Not a request field, not in /api/config.
+
+    "code" (default): fixed planner -> searchers -> writer pipeline (run_code).
+    "llm": the manager-agent path (run_llm), kept for comparison runs only.
+    """
+    value = os.getenv("ORCHESTRATION", "code").strip().lower() or "code"
+    if value not in ORCHESTRATIONS:
+        raise ValueError(f"ORCHESTRATION must be one of {ORCHESTRATIONS}, got {value!r}")
+    return value
+
+
+ORCHESTRATION = orchestration_from_env()
 
 app = FastAPI(title="Deep Research", version=APP_VERSION)
 
@@ -113,7 +128,8 @@ class ResearchRequest(BaseModel):
     email_enabled: bool = True
     email_to: str | None = None
     qa: list[QAPair] = Field(default_factory=list, max_length=MAX_QA_PAIRS)
-    orchestration: Literal["code", "llm"] = "code"
+    # No `orchestration` field: the mode is the server's ORCHESTRATION env var. Pydantic ignores
+    # unknown fields, so a stale client that still sends one gets the server's mode, silently.
     report_language: Literal["en", "he"] = DEFAULT_LANGUAGE
 
 
@@ -134,7 +150,6 @@ async def config():
         "cost_model": cost_model(),
         "email": {"configured": email_configured(), "default_to": DEFAULT_EMAIL_TO},
         "clarify": {"max_rounds": MAX_CLARIFY_ROUNDS, "max_questions": MAX_QUESTIONS_PER_ROUND},
-        "orchestration": {"default": "code", "options": ["code", "llm"]},
         "report_language": {"default": DEFAULT_LANGUAGE, "options": list(LANGUAGES)},
     }
 
@@ -179,7 +194,7 @@ async def research(req: ResearchRequest):
                 raise HTTPException(400, f"Invalid email address: {email_to}")
 
     manager = ResearchManager(model=req.model, email_to=email_to, num_searches=req.num_searches, skip_reason=skip_reason,
-                              qa=[p.model_dump() for p in req.qa], orchestration=req.orchestration,
+                              qa=[p.model_dump() for p in req.qa], orchestration=ORCHESTRATION,
                               report_language=req.report_language)
 
     async def stream():

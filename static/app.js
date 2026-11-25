@@ -12,7 +12,6 @@ const state = {
   config: null,
   model: null,
   searches: 5,
-  orchestration: "code",
   reportLanguage: "en",
   languageTouched: false, // a manual click on the language control wins over auto-detect until "New research"
   stageStart: {},
@@ -37,7 +36,6 @@ async function boot() {
   renderModels();
   selectModel(state.config.default_model);
   initSearches();
-  initOrchestration();
   initLanguage();
 
   const email = state.config.email;
@@ -169,20 +167,6 @@ function initSearches() {
   paint();
 }
 
-/* Orchestration: "code" (fixed pipeline) or "llm" (manager agent picks the calls) */
-function initOrchestration() {
-  const cfg = state.config.orchestration || { default: "code", options: ["code", "llm"] };
-  const segs = [...document.querySelectorAll("#orchestration .seg")];
-  const pick = (value) => {
-    state.orchestration = cfg.options.includes(value) ? value : cfg.default;
-    segs.forEach((b) => b.setAttribute("aria-checked", String(b.dataset.value === state.orchestration)));
-  };
-  segs.forEach((b) => b.addEventListener("click", () => pick(b.dataset.value)));
-  pick(cfg.default);
-}
-
-function modeLabel() { return state.orchestration === "llm" ? "LLM-orchestrated" : "Code-orchestrated"; }
-
 /* Report language: "en" | "he". Auto-flips to Hebrew when the query has Hebrew letters;
    a click on the control wins for the rest of this query (reset by "New research"). */
 const HEBREW_RE = /[\u0590-\u05FF]/;
@@ -235,7 +219,6 @@ async function onSubmit(e) {
     num_searches: state.searches,
     email_enabled: $("email-enabled").checked,
     email_to: $("email-to").value.trim() || null,
-    orchestration: state.orchestration,
     report_language: state.reportLanguage,
   };
 
@@ -388,10 +371,7 @@ function startRunView(query) {
   $("compose").classList.add("hidden");
   $("run").classList.remove("hidden");
   $("run-query").textContent = query;
-  $("run-mode").textContent = modeLabel();
   $("report").classList.add("hidden");
-  $("manager-note").classList.add("hidden");
-  $("manager-note").textContent = "";
   $("error").classList.add("hidden");
   $("plan-list").innerHTML = "";
   $("search-counter").textContent = "";
@@ -428,11 +408,6 @@ function handleEvent(ev) {
       $("trace-link").href = ev.url;
       break;
     case "stage":
-      if (ev.stage === "manager" && ev.status === "note") {
-        $("manager-note").textContent = ev.text;
-        $("manager-note").classList.remove("hidden");
-        break;
-      }
       setStage(ev.stage, ev.status);
       if (ev.stage === "plan" && ev.status === "done") renderPlan(ev.searches);
       if (ev.stage === "search" && ev.status === "running") $("search-counter").textContent = `0 / ${ev.total}`;
@@ -504,7 +479,7 @@ function renderReport(ev) {
   const n = state.qa.length;
   const clar = n ? ` · ${n} clarification${n === 1 ? "" : "s"}` : "";
   const lang = ev.report_language === "he" ? " · Hebrew" : "";
-  $("report-meta").textContent = `· ${state.model.id} · ${state.searches} searches${clar} · ${modeLabel()}${lang} · ${ev.elapsed}s`;
+  $("report-meta").textContent = `· ${state.model.id} · ${state.searches} searches${clar}${lang} · ${ev.elapsed}s`;
   const html = DOMPurify.sanitize(marked.parse(ev.markdown, { gfm: true }));
   $("prose").innerHTML = html;
   setReportDirection(ev.report_language);

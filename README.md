@@ -39,9 +39,9 @@ replaced by a FastAPI backend and a hand-built frontend.
 - **Report tools.** Pull-quote summary, rendered markdown, copy / download
   as `.md`, link to the OpenAI trace, and follow-up questions you can
   launch with one click.
-- **Two orchestration modes.** Code (default) or LLM, picked per run in the
-  Web searches card, so the same query can be run both ways and compared.
-  See below.
+- **Code orchestration by design.** A fixed planner → searchers → writer
+  pipeline. An LLM manager-agent path exists for comparison runs, enabled
+  only server-side with `ORCHESTRATION=llm`. See below.
 - **Report in English or Hebrew.** A "Report language" control in the
   Delivery card (default English). It flips to Hebrew by itself when the
   query contains Hebrew letters; a click on the control wins for that query
@@ -51,9 +51,16 @@ replaced by a FastAPI backend and a hand-built frontend.
 - **Mobile layout** and a version tag in the header so you always know
   which build you're looking at.
 
-## Two orchestration modes
+## Orchestration
 
-| | Code (default) | LLM |
+Orchestration is a design choice, not a user option: the app runs **code
+orchestration**. The LLM manager path stays in the codebase for comparison
+and is enabled only by setting `ORCHESTRATION=llm` in the server's
+environment (default `code`, read once at startup). The browser cannot pick
+the mode: `/api/research` has no `orchestration` field (a client that still
+sends one is ignored, not rejected) and `/api/config` says nothing about it.
+
+| | Code (the design) | LLM (`ORCHESTRATION=llm`) |
 | --- | --- | --- |
 | Who decides the calls | `research_manager.run_code`: planner → N searchers in parallel → writer, fixed | A manager agent (`make_manager`) with `plan_searches`, `search` and `write_report` as tools; it decides what to call and when |
 | Agents and inputs | planner, searcher, writer with `render_context` | the same agents with the same inputs, wrapped as `@function_tool` closures (`make_manager_tools`) |
@@ -62,14 +69,15 @@ replaced by a FastAPI backend and a hand-built frontend.
 
 In both modes the questioner runs before the research (driven by the browser)
 and the email is built and sent in code after the report is on screen. The manager's tool
-calls are mapped onto the same SSE events, so the timeline looks the same; an
-LLM run also shows a line like `4 tool calls, 3 manager turns` under the
-timeline and tags the report with "LLM-orchestrated". A manager that stops
-without calling `write_report` is reported as an error, not as a report.
+calls are mapped onto the same SSE events, so the timeline looks the same. The
+`trace` event carries `orchestration`, and an LLM run also emits a
+`manager`/`note` stage event (`4 tool calls, 3 manager turns`); the UI shows
+neither. A manager that stops without calling `write_report` is reported as an
+error, not as a report.
 
-To compare: run the same query with the same model and search count in each
-mode, then compare the report, the elapsed time, the manager line and the two
-traces (the Trace link on each report).
+To compare: run the same query with the same model and search count once per
+server mode (restart with `ORCHESTRATION=llm`), then compare the report, the
+elapsed time and the two traces (the Trace link on each report).
 
 ## Report language
 
@@ -151,6 +159,7 @@ python app.py            # http://127.0.0.1:7860
 | `DEFAULT_EMAIL_TO` | no | Default recipient; falls back to `EMAIL_ADDRESS` |
 | `PUSHOVER_USER`, `PUSHOVER_TOKEN` | no | Push notifications |
 | `HOST`, `PORT` | no | Dev server bind (default `127.0.0.1:7860`) |
+| `ORCHESTRATION` | no | `code` (default, the design) or `llm` (manager-agent path, comparison only); read at startup |
 
 Without the `EMAIL_*` values the app still works; the Deliver step shows
 "Email skipped (not configured on server)".

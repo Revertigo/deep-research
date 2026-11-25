@@ -192,9 +192,7 @@ input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-of
 }
 .scope-note { margin: 10px 0 0; font-size: 12.5px; color: var(--text-2); line-height: 1.45; }
 
-/* Orchestration: segmented control */
-.orchestration { display: flex; align-items: center; gap: 12px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
-.orch-label { font-weight: 500; }
+/* Segmented control (used by the Report language picker) */
 .segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); padding: 3px; }
 .seg {
   border: 0; border-radius: 999px; padding: 6px 16px; font: inherit; font-size: 15px; cursor: pointer;
@@ -226,7 +224,7 @@ input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-of
 .delivery-note { margin: 0; font-size: 12px; color: var(--muted); }
 .switch-clarify { margin-top: 6px; padding-top: 12px; border-top: 1px solid var(--line); }
 
-/* Report language: same segmented control as Orchestration, inside the Delivery card */
+/* Report language: segmented control inside the Delivery card */
 .language { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 12px; margin-top: 6px; padding-top: 12px; border-top: 1px solid var(--line); } /* wraps under ~330px so the Delivery card never overflows */
 .language .seg { padding: 5px 14px; } /* font-size stays 15px (.seg): iOS Safari zooms on focus below 15px */
 
@@ -305,7 +303,6 @@ input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-of
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
 .error { color: var(--rose); border: 1px solid rgba(255,122,144,.35); background: rgba(255,122,144,.07); padding: 12px 14px; border-radius: var(--radius-sm); }
-.manager-note { margin: 4px 0 0; font-family: var(--mono); font-size: 13px; color: var(--muted); }
 
 /* ── Report ──────────────────────────────────────────── */
 .report {

@@ -4,13 +4,15 @@ Same flow as the course lab. The difference is that `run` yields structured
 events (dicts) instead of status strings, so any frontend can render a live
 timeline. The agents are still plain OpenAI Agents SDK agents.
 
-Two orchestration modes share the same agents and the same event schema:
+Two orchestration modes share the same agents and the same event schema. The
+mode is a server-side design choice (app.py reads the ORCHESTRATION env var at
+startup, default "code"); the browser cannot pick it.
 
-- "code" (default): this module calls planner -> searchers -> writer in a fixed
-  order (`run_code`).
+- "code" (the design): this module calls planner -> searchers -> writer in a
+  fixed order (`run_code`).
 - "llm": a manager agent gets the planner, searcher and writer as tools and
-  decides the calls itself (`run_llm`). Its tool calls are mapped onto the same
-  events, so the UI renders both modes the same way.
+  decides the calls itself (`run_llm`). Kept for comparison runs. Its tool
+  calls are mapped onto the same events, so the UI renders both modes the same way.
 
 Clarifying questions happen before `run`: the UI calls /api/clarify for each
 round (one questioner call each) and passes the collected Q&A pairs in. The
