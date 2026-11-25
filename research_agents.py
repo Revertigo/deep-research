@@ -3,7 +3,8 @@
 Each factory builds a fresh Agent for the requested model so a single run can
 use a cheap or an expensive model end to end. The output schemas are the ones
 from the course lab; the writer prompt was rewritten for a concise report
-(bottom line in short_summary, up to 1000 words) since v1.4.2.
+(bottom line in short_summary, up to 1000 words) since v1.4.2; v1.5.1 added
+dated, titled sources, a latest-developments rule and a ban on inferred stages.
 """
 
 from agents import Agent, FunctionToolResult, ModelSettings, RunContextWrapper, ToolsToFinalOutputResult, WebSearchTool, function_tool
@@ -69,6 +70,9 @@ You are a research assistant. Given a user query, come up with a set of web sear
 to perform to best answer the query. Output exactly {n} terms to query for.
 Make the searches complementary: each should cover a different angle, source type or
 sub-question, with no two searches that would return the same results.
+When the query asks for the current status, "today", the latest or recent developments,
+at least one search must target news from the last 7 days (say so in the query wording,
+for example by including the current month and year) and at least one the background.
 Write search queries in English. If the topic is local to Israel or a Hebrew-speaking context
 (Israeli prices, regulations, companies, services, local news), add Hebrew-language queries
 where Hebrew sources are likely better.
@@ -92,6 +96,10 @@ produce a concise summary of the results. The summary must 2-3 paragraphs and le
 Capture the main points and be succinct. Reply only with the summary.
 The input may start with the user's research goal and their clarification answers.
 Focus the summary on what is relevant to them and skip unrelated angles the pages cover.
+Give the dates of the events the summary describes when the page shows them.
+Never infer a procedural stage, decision or outcome the page does not state; report only what it says.
+The summary must end with one line per page used, in this exact form:
+Source: <page title> -- <url> -- <publication date or "date unknown">
 Write the summary in English whatever language the search term or the sources are in.
 """
 
@@ -123,15 +131,28 @@ above the report as a pull-quote, so the report must not repeat it.
 
 Shape of markdown_report, in this order:
 1. A title line (H1).
-2. 4-8 numbered sections, starting right after the title. Each has a short lead sentence and
-   2-6 bullets with concrete facts, numbers, dates and names from the research. No filler,
-   no restating the question. Do not write a "Bottom line", "Summary" or "Key takeaways"
-   section: short_summary already is the bottom line.
+2. Numbered sections, starting right after the title: only as many as the evidence supports,
+   at most 8. Each has a short lead sentence and 2-6 bullets with concrete facts, numbers,
+   dates and names from the research. No filler, no restating the question.
+   Do not write a "Bottom line", "Summary" or "Key takeaways" section:
+   short_summary already is the bottom line.
+   Do not write how-to, methodology or "how to verify / check the official status" sections
+   unless the query asked for them.
+   When the query asks for the current status, "today", the latest or recent developments,
+   include a "Latest developments" section that covers every open thread found in the
+   summaries (pending decisions, requests, appeals, deadlines, scheduled dates), each with
+   its date.
 3. Optionally a "Conclusion" of at most one sentence, only if it adds something new, such as
    what evidence would change the verdict. Otherwise omit the conclusion.
-4. A "## Sources" section: a bulleted markdown list, one source per line, each as a markdown
-   link "[Title](https://...)". List only sources that appear in the search summaries; never
-   invent a URL. If a summary names a source without a URL, give its title plain.
+4. A "## Sources" section: a bulleted markdown list, deduplicated, one bullet per source as
+   "- [Title](https://...) -- date". Take the title, URL and date from the summaries' "Source:"
+   lines; never write a bare domain such as "gov.il" as the title, and write "date unknown"
+   when the summary gives none. List only sources that appear in the search summaries and
+   that the report used; never invent a URL. If a summary names a source without a URL,
+   give its title plain.
+
+Facts: never state a procedural stage, decision or outcome that is not present in the search
+summaries. Where the summaries do not say, write "unknown" or "not reported" instead of inferring.
 
 Length: the whole markdown_report must be at most 1000 words, sources excluded; 600-900 is typical.
 This is a ceiling, not a target. Cut repetition and generalities before cutting facts.

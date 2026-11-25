@@ -261,8 +261,8 @@ def test_writer_prompt_has_no_bottom_line_section_in_report():
 
 def test_writer_prompt_wants_linked_sources_list():
     instructions = make_writer("gpt-5.4-mini").instructions
-    assert '"## Sources" section: a bulleted markdown list, one source per line' in instructions
-    assert '"[Title](https://...)"' in instructions
+    assert '"## Sources" section: a bulleted markdown list, deduplicated, one bullet per source' in instructions
+    assert '"- [Title](https://...) -- date"' in instructions  # v1.5.1: dated; was "[Title](https://...)"
     assert "invent a URL" in instructions and "only sources that appear in the search summaries" in instructions
     assert "give its title plain" in instructions
 
@@ -292,6 +292,45 @@ def test_writer_prompt_never_echoes_clarifications():
     assert "never quote, paraphrase or refer to them" in instructions
     assert '"you clarified"' in instructions and '"as requested"' in instructions
     assert "reader who never saw the questions" in instructions
+
+
+def test_searcher_prompt_dated_source_line():
+    """v1.5.1: summaries end with a titled, dated Source line and never infer stages."""
+    assert 'Source: <page title> -- <url> -- <publication date or "date unknown">' in SEARCH_INSTRUCTIONS
+    assert "Give the dates of the events" in SEARCH_INSTRUCTIONS
+    assert "Never infer a procedural stage, decision or outcome the page does not state" in SEARCH_INSTRUCTIONS
+    assert "2-3 paragraphs" in SEARCH_INSTRUCTIONS and "relevant to them" in SEARCH_INSTRUCTIONS
+
+
+def test_planner_prompt_latest_news_rule():
+    """v1.5.1: status / "today" queries get one last-7-days search and one background search."""
+    assert "at least one search must target news from the last 7 days" in PLANNER_INSTRUCTIONS
+    assert "including the current month and year" in PLANNER_INSTRUCTIONS
+    assert "at least one the background" in PLANNER_INSTRUCTIONS
+    assert "Make the searches complementary" in PLANNER_INSTRUCTIONS
+
+
+def test_writer_prompt_evidence_sized_sections_and_dated_sources():
+    """v1.5.1: the four writer rules from the 11-25 Netanyahu-trial runs."""
+    instructions = make_writer("gpt-5.4-mini").instructions
+    # (i) sections only as the evidence supports, no how-to filler
+    assert "only as many as the evidence supports" in instructions and "at most 8" in instructions
+    assert 'Do not write how-to, methodology or "how to verify / check the official status"' in instructions
+    # (ii) latest developments for status questions, every open thread dated
+    assert '"Latest developments" section that covers every open thread' in instructions
+    assert "each with\n   its date" in instructions
+    # (iii) no inferred stages or outcomes
+    assert "never state a procedural stage, decision or outcome that is not present" in instructions
+    assert 'write "unknown" or "not reported" instead of inferring' in instructions
+    # (iv) deduplicated, titled, dated sources; no bare domains; unused sources dropped
+    assert '"- [Title](https://...) -- date"' in instructions
+    assert 'never write a bare domain such as "gov.il"' in instructions
+    assert "deduplicated" in instructions and "that the report used" in instructions
+    # kept rules
+    assert "at most 1000 words" in instructions
+    assert 'Do not write a "Bottom line", "Summary" or "Key takeaways" section' in instructions
+    assert "blank line before every heading and before every list" in instructions
+    assert '"sensor-adjacent"' in instructions
 
 
 def test_hebrew_writer_keeps_language_directives_after_rewrite():

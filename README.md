@@ -3,9 +3,13 @@
 A small multi-agent web research app built on the
 [OpenAI Agents SDK](https://openai.github.io/openai-agents-python/).
 Ask a question; three agents plan the searches, run them in parallel and write
-a concise report (a 2-4 sentence bottom line shown as a pull-quote, then 4-8
-numbered sections of at most 1000 words, then a linked list of sources), which
-the app optionally emails you whole. You watch every step live.
+a concise report (a 2-4 sentence bottom line shown as a pull-quote, then up to
+8 numbered sections of at most 1000 words, only as many as the evidence
+supports, then a deduplicated list of dated, titled source links), which the
+app optionally emails you whole. For "status today" questions the planner adds
+a last-7-days news search and the writer a "Latest developments" section that
+covers every open thread; neither agent may infer a stage or outcome the pages
+do not state. You watch every step live.
 
 Grew out of the week-2 Deep Research lab from Ed Donner's
 [AI Agents course](https://github.com/ed-donner/agents), with the Gradio UI
@@ -92,7 +96,7 @@ agent does with it:
 | --- | --- |
 | Questioner | asks in the language the query was written in (not the report language) |
 | Planner | writes search queries in English; for Israel-local topics (Israeli prices, regulations, companies, services, local news) it adds Hebrew queries where Hebrew sources are likely better. No UI control; the planner judges |
-| Searcher | summaries always in English |
+| Searcher | summaries always in English, with event dates and a closing `Source: title -- url -- date` line per page |
 | Writer | report, summary and follow-up questions in the chosen language; technical terms, product/library/API names and code stay in English. Same directive in both orchestration modes (`make_writer(model, language)`) |
 
 The `report` SSE event carries `report_language`, and the UI sets
