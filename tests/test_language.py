@@ -7,6 +7,7 @@ tests read the writer's instructions off the recorded Agent objects.
 import base64
 import json
 import sys
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -131,7 +132,7 @@ def test_hebrew_report_in_code_mode(calls, client):
     # Planner and searcher inputs are unchanged by the language choice.
     inputs = {agent.name: sent for agent, sent in calls}
     assert inputs["Planner Agent"] == "Query: EV adoption"
-    assert inputs["Search Agent"] == "Research context:\nQuery: EV adoption\n\nSearch term: q1\nReason for searching: r"
+    assert inputs["Search Agent"] == f"Research context:\nQuery: EV adoption\n\nToday: {date.today().isoformat()}\nSearch term: q1\nReason for searching: r"
 
 
 def test_clarify_accepts_language_and_questioner_asks_in_query_language(calls, client):
@@ -349,3 +350,33 @@ def test_cost_fixed_output_matches_concise_writer():
     assert EST_FIXED_OUTPUT == 2_000 == cost_model()["fixed_output"]
     mini = next(m for m in MODELS if m["id"] == "gpt-5.4-mini")
     assert round(estimate_cost(mini, 5), 3) == 0.082
+
+
+def test_writer_prompt_requested_format_is_the_core():
+    """v1.5.2: a query asking for a table / timeline / ranked list gets it as the report's core."""
+    instructions = make_writer("gpt-5.4-mini").instructions
+    assert "asks for a specific output format (a table,\n   a timeline, a ranked list, a comparison)" in instructions
+    assert "that format is the core of the report" in instructions
+    assert "compared items as rows and the compared\n   properties as columns" in instructions
+    assert "give it its own section right after the title" in instructions
+    assert "a table's cells count as words" in instructions
+    # hygiene covers tables
+    assert "before every heading and before every list or table" in instructions
+    assert '("| --- | --- |"), then one row per item' in instructions
+    # kept rules
+    assert "at most 1000 words" in instructions and "at most 8" in instructions
+
+
+def test_writer_prompt_lists_only_used_sources():
+    """v1.5.2: Sources are the ones the report used, deduplicated, typically 5-15; never every summary source."""
+    instructions = make_writer("gpt-5.4-mini").instructions
+    assert "that the report used (cited or drew facts from): typically 5-15 bullets, never every\n   source the summaries mention" in instructions
+    assert "deduplicated" in instructions
+
+
+def test_searcher_prompt_absolute_dates_and_receives_today():
+    """v1.5.2: Source dates are absolute (YYYY-MM-DD / YYYY-MM / YYYY), converted from relative ones with today's date."""
+    assert "The date must be absolute (YYYY-MM-DD, YYYY-MM or YYYY), never relative" in SEARCH_INSTRUCTIONS
+    assert '"2 years ago",\n"last month"' in SEARCH_INSTRUCTIONS
+    assert "convert it using today's date given\nin the input" in SEARCH_INSTRUCTIONS
+    assert 'if you cannot, write "date unknown"' in SEARCH_INSTRUCTIONS

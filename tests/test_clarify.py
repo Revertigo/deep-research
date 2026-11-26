@@ -6,6 +6,7 @@ No OpenAI calls: Runner.run is replaced by a fake that answers per agent.
 import base64
 import json
 import sys
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -160,5 +161,5 @@ def test_research_passes_context_to_searcher(calls, client):
     sent = dict(calls)["Search Agent"]
     assert sent == (
         "Research context:\nQuery: EV adoption\nClarifications so far:\nQ: Which region?\nA: Europe\n\n"
-        "Search term: q1\nReason for searching: r"
+        f"Today: {date.today().isoformat()}\nSearch term: q1\nReason for searching: r"
     )

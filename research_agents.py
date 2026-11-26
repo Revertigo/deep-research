@@ -7,6 +7,8 @@ from the course lab; the writer prompt was rewritten for a concise report
 dated, titled sources, a latest-developments rule and a ban on inferred stages.
 """
 
+from datetime import date
+
 from agents import Agent, FunctionToolResult, ModelSettings, RunContextWrapper, ToolsToFinalOutputResult, WebSearchTool, function_tool
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
@@ -100,6 +102,9 @@ Give the dates of the events the summary describes when the page shows them.
 Never infer a procedural stage, decision or outcome the page does not state; report only what it says.
 The summary must end with one line per page used, in this exact form:
 Source: <page title> -- <url> -- <publication date or "date unknown">
+The date must be absolute (YYYY-MM-DD, YYYY-MM or YYYY), never relative ("2 years ago",
+"last month"). If the page shows only a relative date, convert it using today's date given
+in the input; if you cannot, write "date unknown".
 Write the summary in English whatever language the search term or the sources are in.
 """
 
@@ -142,14 +147,21 @@ Shape of markdown_report, in this order:
    include a "Latest developments" section that covers every open thread found in the
    summaries (pending decisions, requests, appeals, deadlines, scheduled dates), each with
    its date.
+   When the query or a clarification answer asks for a specific output format (a table,
+   a timeline, a ranked list, a comparison), that format is the core of the report: build
+   it as a markdown table (or list) with the compared items as rows and the compared
+   properties as columns, give it its own section right after the title, and keep the
+   other sections short around it. The word ceiling and the no-filler rules still hold;
+   a table's cells count as words.
 3. Optionally a "Conclusion" of at most one sentence, only if it adds something new, such as
    what evidence would change the verdict. Otherwise omit the conclusion.
 4. A "## Sources" section: a bulleted markdown list, deduplicated, one bullet per source as
    "- [Title](https://...) -- date". Take the title, URL and date from the summaries' "Source:"
    lines; never write a bare domain such as "gov.il" as the title, and write "date unknown"
    when the summary gives none. List only sources that appear in the search summaries and
-   that the report used; never invent a URL. If a summary names a source without a URL,
-   give its title plain.
+   that the report used (cited or drew facts from): typically 5-15 bullets, never every
+   source the summaries mention; never invent a URL. If a summary names a source without
+   a URL, give its title plain.
 
 Facts: never state a procedural stage, decision or outcome that is not present in the search
 summaries. Where the summaries do not say, write "unknown" or "not reported" instead of inferring.
@@ -157,9 +169,10 @@ summaries. Where the summaries do not say, write "unknown" or "not reported" ins
 Length: the whole markdown_report must be at most 1000 words, sources excluded; 600-900 is typical.
 This is a ceiling, not a target. Cut repetition and generalities before cutting facts.
 
-Markdown hygiene: put a blank line before every heading and before every list. Never put a list
+Markdown hygiene: put a blank line before every heading and before every list or table. Never put a list
 item on the same line as its lead-in sentence; end the sentence, leave a blank line, then start
-the list with "- " on its own line.
+the list with "- " on its own line. A table starts with a header row, then the separator row
+("| --- | --- |"), then one row per item, every row with the same number of cells.
 
 Plain wording: name the sensor, the source or the method, or say "unverified". Do not coin hedge
 compounds such as "sensor-adjacent" or "radar/IR/video-adjacent".
@@ -258,7 +271,7 @@ def make_manager_tools(model: str, context: str, num_searches: int, runner, lang
             return f"{SEARCH_FAILED_PREFIX}search budget of {num_searches} reached"
         searches_started += 1
         item = WebSearchItem(query=query, reason=reason)
-        input_message = f"Research context:\n{context}\n\nSearch term: {item.query}\nReason for searching: {item.reason}"
+        input_message = f"Research context:\n{context}\n\nToday: {date.today().isoformat()}\nSearch term: {item.query}\nReason for searching: {item.reason}"
         try:
             result = await runner.run(searcher, input_message)
         except Exception as exc:

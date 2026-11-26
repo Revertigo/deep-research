@@ -29,6 +29,7 @@ import html
 import json
 import re
 import time
+from datetime import date
 from typing import AsyncIterator
 
 from markdown_it import MarkdownIt
@@ -275,7 +276,8 @@ class ResearchManager:
             yield await finished
 
     async def search(self, searcher, item: WebSearchItem, context: str = "") -> str:
-        input_message = f"Search term: {item.query}\nReason for searching: {item.reason}"
+        # Today's date lets the searcher turn "2 years ago" into an absolute date on the Source line.
+        input_message = f"Today: {date.today().isoformat()}\nSearch term: {item.query}\nReason for searching: {item.reason}"
         if context:
             input_message = f"Research context:\n{context}\n\n{input_message}"
         result = await Runner.run(searcher, input_message)

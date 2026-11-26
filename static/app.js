@@ -37,6 +37,7 @@ async function boot() {
   selectModel(state.config.default_model);
   initSearches();
   initLanguage();
+  syncLanguageFromQuery(); // a query the browser restored on reload fires no "input" event
 
   const email = state.config.email;
   $("email-to").placeholder = email.default_to || "you@example.com";
@@ -212,6 +213,7 @@ async function onSubmit(e) {
   if (state.running) return;
   const query = $("query").value.trim();
   if (query.length < 3) return;
+  syncLanguageFromQuery(); // last chance: a query set without an "input" event (manual click still wins)
 
   const body = {
     query,

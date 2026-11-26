@@ -5,8 +5,11 @@ A small multi-agent web research app built on the
 Ask a question; three agents plan the searches, run them in parallel and write
 a concise report (a 2-4 sentence bottom line shown as a pull-quote, then up to
 8 numbered sections of at most 1000 words, only as many as the evidence
-supports, then a deduplicated list of dated, titled source links), which the
-app optionally emails you whole. For "status today" questions the planner adds
+supports, then a deduplicated list of the dated, titled source links the
+report used, typically 5-15), which the app optionally emails you whole. When
+the query asks for a table, timeline, ranked list or comparison, that format
+is the core of the report, in its own section right after the title. For
+"status today" questions the planner adds
 a last-7-days news search and the writer a "Latest developments" section that
 covers every open thread; neither agent may infer a stage or outcome the pages
 do not state. You watch every step live.
@@ -48,8 +51,10 @@ replaced by a FastAPI backend and a hand-built frontend.
   only server-side with `ORCHESTRATION=llm`. See below.
 - **Report in English or Hebrew.** A "Report language" control in the
   Delivery card (default English). It flips to Hebrew by itself when the
-  query contains Hebrew letters; a click on the control wins for that query
-  and auto-detect comes back with "New research". Hebrew reports render
+  query contains Hebrew letters (checked on every keystroke, on page load
+  for a query the browser restored, and once more at submit); a click on the
+  control wins for that query and auto-detect comes back with "New research".
+  Hebrew reports render
   right-to-left on the page and in the email, with code kept left-to-right.
   Each model card carries a Hebrew-quality flag (see below).
 - **Mobile layout** and a version tag in the header so you always know
@@ -96,7 +101,7 @@ agent does with it:
 | --- | --- |
 | Questioner | asks in the language the query was written in (not the report language) |
 | Planner | writes search queries in English; for Israel-local topics (Israeli prices, regulations, companies, services, local news) it adds Hebrew queries where Hebrew sources are likely better. No UI control; the planner judges |
-| Searcher | summaries always in English, with event dates and a closing `Source: title -- url -- date` line per page |
+| Searcher | summaries always in English, with event dates and a closing `Source: title -- url -- date` line per page; the date is absolute (`YYYY-MM-DD`, `YYYY-MM` or `YYYY`, else `date unknown`), converted from relative ones with the `Today:` line the manager puts in its input |
 | Writer | report, summary and follow-up questions in the chosen language; technical terms, product/library/API names and code stay in English. Same directive in both orchestration modes (`make_writer(model, language)`) |
 
 The `report` SSE event carries `report_language`, and the UI sets

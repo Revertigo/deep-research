@@ -8,6 +8,7 @@ import asyncio
 import base64
 import json
 import sys
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -308,7 +309,7 @@ def test_manager_tools_wrap_agents_with_code_path_inputs(calls):
 
     inputs = dict(calls)
     assert inputs["Planner Agent"] == CONTEXT
-    assert inputs["Search Agent"] == f"Research context:\n{CONTEXT}\n\nSearch term: q1\nReason for searching: r1"
+    assert inputs["Search Agent"] == f"Research context:\n{CONTEXT}\n\nToday: {date.today().isoformat()}\nSearch term: q1\nReason for searching: r1"
     assert inputs["Writer Agent"] == f"Original query and clarifications:\n{CONTEXT}\nSummarized search results: ['summary']"
 
 

@@ -205,3 +205,13 @@ def test_table_alignment_kept_alongside_inline_style():
     assert 'style="text-align:right;border:' in html_body  # alignment merged into our style, not a second attribute
     assert html_body.count("style=") == 5  # table + 2 th + 2 td
     assert not research_manager.re.search(r"<\w+[^>]*style=[^>]*style=", html_body)
+
+
+def test_table_in_report_renders_in_email():
+    """v1.5.2: a requested-format table in markdown_report arrives as a <table> in the mail, LTR and RTL alike."""
+    md = "# Chatbots\n\n## Comparison\n\n| Chatbot | Policy |\n| --- | --- |\n| A | permissive |\n| B | strict |\n"
+    for lang in ("en", "he"):
+        _, text_body, html_body = research_manager.build_email(report(markdown=md, follow_ups=[]), lang)
+        assert "<table" in html_body and html_body.count("<th ") == 2 and html_body.count("<td ") == 4
+        assert "permissive" in html_body and "| --- | --- |" not in html_body
+        assert "| --- | --- |" in text_body  # plain-text part is the unchanged markdown
